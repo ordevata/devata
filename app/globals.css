@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { --bg: 255 255 255; --fg: 17 24 39; }
+body { background: rgb(var(--bg)); color: rgb(var(--fg)); }
+.container { @apply mx-auto max-w-6xl px-4; }
+.card { @apply rounded-2xl border p-5 shadow-sm; }
+.h1 { @apply text-2xl font-semibold; }
+.h2 { @apply text-xl font-semibold; }
+.mono { font-feature-settings: 'tnum' on, 'lnum' on; }
