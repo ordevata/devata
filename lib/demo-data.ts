@@ -1,4 +1,5 @@
 import type {
+  BookingPaymentSummary,
   BookingRequest,
   BookingResponse,
   Center,
@@ -18,6 +19,87 @@ const MOSCOW_TIME_OFFSET_MINUTES = 180
 
 const slotReservations = new Map<string, number>()
 let seededReservation = false
+
+function computeDepositDueAt(
+  depositDueMinutes: number | undefined,
+  now: Date
+): string | undefined {
+  if (depositDueMinutes == null) return undefined
+  return new Date(now.getTime() + depositDueMinutes * MS_PER_MINUTE).toISOString()
+}
+
+export function calculatePaymentSummary(
+  service: Service | undefined,
+  options: { now?: Date } = {}
+): BookingPaymentSummary | undefined {
+  if (!service) return undefined
+
+  const now = options.now ?? new Date()
+  const policy = service.paymentPolicy ?? 'none'
+  const price = service.price
+  const depositPercent = service.depositPercent ?? 0
+  const depositHoldMinutes = service.depositDueMinutes ?? undefined
+  const depositDueAt = computeDepositDueAt(depositHoldMinutes, now)
+
+  let dueNowAmount: number | undefined
+  let dueLaterAmount: number | undefined
+  let note: string | undefined
+
+  switch (policy) {
+    case 'full_prepaid':
+      if (price != null) {
+        dueNowAmount = price
+        dueLaterAmount = 0
+      }
+      note = 'Для подтверждения записи требуется полная оплата.'
+      break
+    case 'deposit_required':
+      if (price != null) {
+        dueNowAmount = Math.min(price, Math.max(0, Math.round((price * depositPercent) / 100)))
+        dueLaterAmount = Math.max(0, price - (dueNowAmount ?? 0))
+      }
+      note = 'Необходимо внести депозит, чтобы удержать слот.'
+      break
+    case 'deposit_optional':
+      if (price != null) {
+        dueNowAmount = Math.min(price, Math.max(0, Math.round((price * depositPercent) / 100)))
+        dueLaterAmount = Math.max(0, price - (dueNowAmount ?? 0))
+      }
+      note = 'Депозит можно внести для фиксации времени.'
+      break
+    default:
+      if (price != null) {
+        dueLaterAmount = price
+      }
+      note = 'Оплата производится в день визита.'
+      break
+  }
+
+  const summary: BookingPaymentSummary = {
+    policy,
+    currency: 'RUB',
+    totalAmount: price,
+    isDepositOptional: policy === 'deposit_optional',
+    depositHoldMinutes,
+    depositDueAt
+  }
+
+  if (dueNowAmount != null) {
+    if (dueNowAmount > 0 || policy === 'full_prepaid') {
+      summary.dueNowAmount = dueNowAmount
+    }
+  }
+
+  if (dueLaterAmount != null && dueLaterAmount > 0) {
+    summary.dueLaterAmount = dueLaterAmount
+  }
+
+  if (note) {
+    summary.note = note
+  }
+
+  return summary
+}
 
 export const demoCenters: Center[] = [
   {
@@ -499,9 +581,16 @@ export function createDemoBooking(request: BookingRequest): DemoBookingRecord {
     throw new DemoBookingError('SLOT_UNAVAILABLE', 'Слот уже занят', 409)
   }
 
+  const service = demoServices.find((item) => item.id === request.serviceId)
+  const payment = calculatePaymentSummary(service)
+  const requiresUpfrontConfirmation =
+    payment != null &&
+    (payment.policy === 'full_prepaid' ||
+      (payment.policy === 'deposit_required' && (payment.dueNowAmount ?? 0) > 0))
+
   const booking: DemoBookingRecord = {
     bookingId: nextDemoBookingId(),
-    status: 'confirmed',
+    status: requiresUpfrontConfirmation ? 'reserved' : 'confirmed',
     slotStart: slot.start,
     slotEnd: slot.end,
     centerId: request.centerId,
@@ -509,7 +598,8 @@ export function createDemoBooking(request: BookingRequest): DemoBookingRecord {
     specialistId: request.specialistId,
     slotId: request.slotId,
     client: request.client,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    payment
   }
 
   demoBookings.push(booking)

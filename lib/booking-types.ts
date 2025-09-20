@@ -103,9 +103,22 @@ export type BookingRequest = {
 
 export type BookingStatus = 'reserved' | 'confirmed' | 'simulated'
 
+export type BookingPaymentSummary = {
+  policy: PaymentPolicy
+  currency?: string
+  totalAmount?: number
+  dueNowAmount?: number
+  dueLaterAmount?: number
+  isDepositOptional?: boolean
+  depositHoldMinutes?: number
+  depositDueAt?: string
+  note?: string
+}
+
 export type BookingResponse = {
   bookingId: string
   status: BookingStatus
   slotStart: string
   slotEnd: string
+  payment?: BookingPaymentSummary
 }

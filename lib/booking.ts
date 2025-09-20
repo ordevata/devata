@@ -7,12 +7,19 @@ import type {
   Slot,
   Specialist
 } from './booking-types'
-import { demoCenters, demoServices, demoSpecialists, getDemoSlots } from './demo-data'
+import {
+  calculatePaymentSummary,
+  demoCenters,
+  demoServices,
+  demoSpecialists,
+  getDemoSlots
+} from './demo-data'
 
 export type {
   PaymentPolicy,
   BookingRequest,
   BookingResponse,
+  BookingPaymentSummary,
   Center,
   Service,
   Slot,
@@ -90,11 +97,14 @@ export async function createBooking(request: BookingRequest): Promise<BookingRes
       const slot = getDemoSlots().find((item) => item.id === request.slotId)
       const slotStart = slot?.start ?? new Date().toISOString()
       const slotEnd = slot?.end ?? new Date(Date.now() + 60 * 60 * 1000).toISOString()
+      const service = demoServices.find((item) => item.id === request.serviceId)
+      const payment = calculatePaymentSummary(service)
       return {
         bookingId: `demo-${Date.now()}`,
         status: 'simulated',
         slotStart,
-        slotEnd
+        slotEnd,
+        payment
       }
     }
     throw error instanceof Error ? error : new Error('Не удалось создать бронь')

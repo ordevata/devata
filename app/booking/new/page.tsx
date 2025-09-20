@@ -10,6 +10,7 @@ import {
   getServices,
   getSlots,
   getSpecialists,
+  type BookingResponse,
   type BookingRequest,
   type Center,
   type Service,
@@ -64,6 +65,15 @@ export default function Page() {
         style: 'currency',
         currency: 'RUB',
         maximumFractionDigits: 0
+      }),
+    []
+  )
+
+  const dateTimeFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat('ru-RU', {
+        dateStyle: 'long',
+        timeStyle: 'short'
       }),
     []
   )
@@ -142,6 +152,66 @@ export default function Page() {
         return 'Предоплата не требуется — оплата производится в центре в день визита.'
     }
   }, [selectedService])
+
+  const buildPaymentInstruction = (payment?: BookingResponse['payment']) => {
+    if (!payment) return ''
+
+    const parts: string[] = []
+    const formatAmount = (value: number) => currencyFormatter.format(value)
+    const depositDueText = (() => {
+      if (!payment.depositDueAt) return null
+      const dueDate = new Date(payment.depositDueAt)
+      if (Number.isNaN(dueDate.getTime())) return null
+      return dateTimeFormatter.format(dueDate)
+    })()
+    const depositSuffix = depositDueText ? ` до ${depositDueText}` : ''
+
+    const dueLaterAmount =
+      payment.dueLaterAmount ??
+      (payment.policy === 'none' && payment.totalAmount != null ? payment.totalAmount : undefined)
+
+    switch (payment.policy) {
+      case 'full_prepaid': {
+        if (payment.dueNowAmount != null) {
+          const amountText = formatAmount(payment.dueNowAmount)
+          parts.push(`Для подтверждения визита оплатите ${amountText}${depositSuffix}.`)
+        }
+        break
+      }
+      case 'deposit_required': {
+        if (payment.dueNowAmount != null) {
+          const depositText = formatAmount(payment.dueNowAmount)
+          parts.push(`Нужно внести депозит ${depositText}${depositSuffix}.`)
+        }
+        if (dueLaterAmount != null && dueLaterAmount > 0) {
+          parts.push(`Остаток ${formatAmount(dueLaterAmount)} — в день визита.`)
+        }
+        break
+      }
+      case 'deposit_optional': {
+        if (payment.dueNowAmount != null && payment.dueNowAmount > 0) {
+          const depositText = formatAmount(payment.dueNowAmount)
+          parts.push(`Вы можете внести депозит ${depositText}${depositSuffix}, чтобы закрепить время.`)
+        }
+        if (dueLaterAmount != null && dueLaterAmount > 0) {
+          parts.push(`Оплата ${formatAmount(dueLaterAmount)} в день визита.`)
+        }
+        break
+      }
+      default: {
+        if (dueLaterAmount != null && dueLaterAmount > 0) {
+          parts.push(`Оплата ${formatAmount(dueLaterAmount)} в день визита.`)
+        }
+        break
+      }
+    }
+
+    if (!parts.length && payment.note) {
+      parts.push(payment.note)
+    }
+
+    return parts.join(' ')
+  }
 
   useEffect(() => {
     let active = true
@@ -330,16 +400,31 @@ export default function Page() {
 
     try {
       const response = await createBooking(payload)
-      const successTitle = response.status === 'simulated' ? 'Заявка сохранена' : 'Бронь создана'
-      const successMessage =
+      const successTitle =
+        response.status === 'simulated'
+          ? 'Заявка сохранена'
+          : response.status === 'reserved'
+            ? 'Бронь ожидает подтверждения'
+            : 'Бронь создана'
+
+      const baseMessage =
         response.status === 'simulated'
           ? 'API пока не подключено, поэтому заявка сохранена в демо-режиме. После подключения backend брони будут подтверждаться автоматически.'
-          : 'Мы получили вашу заявку и отправим подтверждение по выбранному каналу связи.'
+          : response.status === 'reserved'
+            ? 'Мы удерживаем выбранный слот за вами. Завершите оплату, чтобы подтвердить запись.'
+            : 'Мы получили вашу заявку и отправим подтверждение по выбранному каналу связи.'
+
+      const paymentMessage = buildPaymentInstruction(response.payment)
+      const messageParts = [baseMessage]
+      if (paymentMessage) {
+        messageParts.push(paymentMessage)
+      }
+      messageParts.push(`ID: ${response.bookingId}`)
 
       setStatus({
         type: 'success',
         title: successTitle,
-        message: `${successMessage} ID: ${response.bookingId}`
+        message: messageParts.join(' ')
       })
     } catch (error) {
       console.error('Не удалось создать бронь', error)

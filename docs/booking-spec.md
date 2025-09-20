@@ -207,12 +207,23 @@ create table booking_events (
 ```json
 {
   "booking_id": "uuid",
-  "status": "confirmed",
+  "status": "reserved",
   "specialist_id": "...",
   "starts_at": "...",
-  "ends_at": "..."
+  "ends_at": "...",
+  "payment": {
+    "policy": "deposit_required",
+    "currency": "RUB",
+    "total_amount": 6500,
+    "due_now_amount": 1950,
+    "due_later_amount": 4550,
+    "deposit_hold_minutes": 20,
+    "deposit_due_at": "2025-09-01T09:20:00+03:00"
+  }
 }
 ```
+Если услуге не требуется предоплата, поле `payment` возвращается с политикой `none` или не возвращается вовсе. Статус `reserved`
+означает, что слот удерживается до внесения депозита/оплаты; после успешного платежа брони переходят в `confirmed`.
 Ошибки:
 - `409 Conflict` — слот занят. В теле ответа вернуть ближайшие альтернативы:
 ```json
