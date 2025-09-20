@@ -9,7 +9,17 @@ import type {
 } from './booking-types'
 import { demoCenters, demoServices, demoSpecialists, getDemoSlots } from './demo-data'
 
-export type { PaymentPolicy, BookingRequest, BookingResponse, Center, Service, Slot, Specialist } from './booking-types'
+export type {
+  PaymentPolicy,
+  BookingRequest,
+  BookingResponse,
+  Center,
+  Service,
+  Slot,
+  Specialist,
+  ScheduleRule,
+  ScheduleException
+} from './booking-types'
 
 async function fetchWithFallback<T>(
   path: string,
@@ -46,21 +56,6 @@ export type SlotQuery = {
   to?: string
 }
 
-function filterDemoSlots({ centerId, serviceId, specialistId, from, to }: SlotQuery): Slot[] {
-  const slots = getDemoSlots()
-  const fromMs = from ? Date.parse(from) : undefined
-  const toMs = to ? Date.parse(to) : undefined
-
-  return slots.filter((slot) => {
-    if (slot.centerId !== centerId) return false
-    if (slot.serviceId !== serviceId) return false
-    if (slot.specialistId !== specialistId) return false
-    if (fromMs && Date.parse(slot.end) < fromMs) return false
-    if (toMs && Date.parse(slot.start) > toMs) return false
-    return true
-  })
-}
-
 export async function getSlots(query: SlotQuery): Promise<Slot[]> {
   const { centerId, serviceId, specialistId, from, to } = query
   const search = new URLSearchParams({
@@ -71,7 +66,15 @@ export async function getSlots(query: SlotQuery): Promise<Slot[]> {
   if (from) search.set('from', from)
   if (to) search.set('to', to)
 
-  return fetchWithFallback(`/booking/slots?${search.toString()}`, () => filterDemoSlots(query))
+  return fetchWithFallback(`/booking/slots?${search.toString()}`, () =>
+    getDemoSlots({
+      centerId,
+      serviceId,
+      specialistId,
+      from,
+      to
+    })
+  )
 }
 
 export async function createBooking(request: BookingRequest): Promise<BookingResponse> {

@@ -11,6 +11,7 @@ export function GET(request: NextRequest) {
   const specialistId = searchParams.get('specialist_id') ?? undefined
   const from = searchParams.get('from') ?? undefined
   const to = searchParams.get('to') ?? undefined
+  const limitParam = searchParams.get('limit') ?? undefined
 
   if (!centerId || !serviceId || !specialistId) {
     return NextResponse.json(
@@ -19,16 +20,39 @@ export function GET(request: NextRequest) {
     )
   }
 
-  const fromMs = from ? Date.parse(from) : undefined
-  const toMs = to ? Date.parse(to) : undefined
+  if (from) {
+    const parsed = Date.parse(from)
+    if (!Number.isFinite(parsed)) {
+      return NextResponse.json({ error: 'Параметр from должен быть в формате ISO 8601' }, { status: 400 })
+    }
+  }
 
-  const slots = getDemoSlots().filter((slot) => {
-    if (slot.centerId !== centerId) return false
-    if (slot.serviceId !== serviceId) return false
-    if (slot.specialistId !== specialistId) return false
-    if (fromMs && Date.parse(slot.end) < fromMs) return false
-    if (toMs && Date.parse(slot.start) > toMs) return false
-    return true
+  if (to) {
+    const parsed = Date.parse(to)
+    if (!Number.isFinite(parsed)) {
+      return NextResponse.json({ error: 'Параметр to должен быть в формате ISO 8601' }, { status: 400 })
+    }
+  }
+
+  let limit: number | undefined
+  if (limitParam) {
+    const parsedLimit = Number.parseInt(limitParam, 10)
+    if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+      return NextResponse.json(
+        { error: 'Параметр limit должен быть положительным целым числом' },
+        { status: 400 }
+      )
+    }
+    limit = parsedLimit
+  }
+
+  const slots = getDemoSlots({
+    centerId,
+    serviceId,
+    specialistId,
+    from,
+    to,
+    limit
   })
 
   return NextResponse.json(slots, {

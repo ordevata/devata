@@ -2,10 +2,22 @@ import type {
   BookingRequest,
   BookingResponse,
   Center,
+  ScheduleException,
+  ScheduleRule,
   Service,
-  Specialist,
-  Slot
+  Slot,
+  Specialist
 } from './booking-types'
+
+const MS_PER_MINUTE = 60 * 1000
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+const DEFAULT_WINDOW_DAYS = 21
+const DEFAULT_LIMIT = 90
+const MAX_LIMIT = 180
+const MOSCOW_TIME_OFFSET_MINUTES = 180
+
+const slotReservations = new Map<string, number>()
+let seededReservation = false
 
 export const demoCenters: Center[] = [
   {
@@ -81,7 +93,358 @@ export const demoSpecialists: Specialist[] = [
   }
 ]
 
-const slotReservations = new Map<string, number>()
+export const demoScheduleRules: ScheduleRule[] = [
+  {
+    id: 'rule-maria-basic-weekdays',
+    centerId: 'center-spb',
+    specialistId: 'specialist-maria',
+    serviceId: 'restoration-basic',
+    daysOfWeek: [1, 3, 5],
+    startTimes: ['10:00', '12:00', '15:00'],
+    durationMinutes: 60,
+    capacity: 1,
+    room: 'Кабинет 1',
+    timezoneOffsetMinutes: MOSCOW_TIME_OFFSET_MINUTES,
+    validFrom: '2024-01-01T00:00:00+03:00'
+  },
+  {
+    id: 'rule-maria-advanced-evening',
+    centerId: 'center-spb',
+    specialistId: 'specialist-maria',
+    serviceId: 'restoration-advanced',
+    daysOfWeek: [2, 4],
+    startTimes: ['18:30'],
+    durationMinutes: 90,
+    capacity: 1,
+    room: 'Кабинет 2',
+    timezoneOffsetMinutes: MOSCOW_TIME_OFFSET_MINUTES,
+    notes: 'Расширенная диагностика и сопровождение',
+    validFrom: '2024-01-01T00:00:00+03:00'
+  },
+  {
+    id: 'rule-ilya-msk-basic',
+    centerId: 'center-msk',
+    specialistId: 'specialist-ilya',
+    serviceId: 'restoration-basic',
+    daysOfWeek: [2, 4],
+    startTimes: ['11:00', '13:00', '16:00'],
+    durationMinutes: 60,
+    capacity: 1,
+    room: 'Кабинет А',
+    timezoneOffsetMinutes: MOSCOW_TIME_OFFSET_MINUTES,
+    validFrom: '2024-01-01T00:00:00+03:00'
+  },
+  {
+    id: 'rule-ilya-msk-diagnostics',
+    centerId: 'center-msk',
+    specialistId: 'specialist-ilya',
+    serviceId: 'diagnostics',
+    daysOfWeek: [2, 4],
+    startTimes: ['10:00', '14:30'],
+    durationMinutes: 45,
+    capacity: 1,
+    room: 'Диагностическая комната',
+    timezoneOffsetMinutes: MOSCOW_TIME_OFFSET_MINUTES,
+    notes: 'Первичный анализ состояния и подбор программы',
+    validFrom: '2024-01-01T00:00:00+03:00'
+  },
+  {
+    id: 'rule-ilya-spb-weekend',
+    centerId: 'center-spb',
+    specialistId: 'specialist-ilya',
+    serviceId: 'restoration-basic',
+    daysOfWeek: [6],
+    startTimes: ['11:00', '13:30'],
+    durationMinutes: 60,
+    capacity: 1,
+    room: 'Кабинет 3',
+    timezoneOffsetMinutes: MOSCOW_TIME_OFFSET_MINUTES,
+    notes: 'Выездной приём для Санкт-Петербурга',
+    validFrom: '2024-01-01T00:00:00+03:00'
+  }
+]
+
+type NextLocalDateInput = {
+  dayOfWeek: number
+  time: string
+  offsetMinutes: number
+  lookAheadDays?: number
+}
+
+type NormalizedRule = ScheduleRule & {
+  validFromMs?: number
+  validUntilMs?: number
+  timezoneOffsetMinutes: number
+}
+
+type NormalizedException = ScheduleException & {
+  startMs: number
+  endMs: number
+}
+
+function parseDateOption(value?: Date | string): Date | undefined {
+  if (!value) return undefined
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return undefined
+  return date
+}
+
+function startOfLocalDay(date: Date, offsetMinutes: number): Date {
+  const shifted = new Date(date.getTime() + offsetMinutes * MS_PER_MINUTE)
+  shifted.setUTCHours(0, 0, 0, 0)
+  return new Date(shifted.getTime() - offsetMinutes * MS_PER_MINUTE)
+}
+
+function addDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * MS_PER_DAY)
+}
+
+function addMinutes(date: Date, minutes: number): Date {
+  return new Date(date.getTime() + minutes * MS_PER_MINUTE)
+}
+
+function parseTimeToMinutes(value: string): number | null {
+  const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(value.trim())
+  if (!match) return null
+  const hours = Number.parseInt(match[1] ?? '0', 10)
+  const minutes = Number.parseInt(match[2] ?? '0', 10)
+  return hours * 60 + minutes
+}
+
+function getLocalDayOfWeek(dayStartUtc: Date, offsetMinutes: number): number {
+  const shifted = new Date(dayStartUtc.getTime() + offsetMinutes * MS_PER_MINUTE)
+  return shifted.getUTCDay()
+}
+
+function nextLocalDate({ dayOfWeek, time, offsetMinutes, lookAheadDays = 14 }: NextLocalDateInput): Date {
+  const now = new Date()
+  const baseDay = startOfLocalDay(now, offsetMinutes)
+  const minutes = parseTimeToMinutes(time) ?? 0
+
+  for (let i = 0; i < lookAheadDays; i += 1) {
+    const candidateDay = addDays(baseDay, i)
+    if (getLocalDayOfWeek(candidateDay, offsetMinutes) !== dayOfWeek) {
+      continue
+    }
+    const candidate = addMinutes(candidateDay, minutes)
+    if (candidate.getTime() > now.getTime()) {
+      return candidate
+    }
+  }
+
+  const fallback = addDays(baseDay, lookAheadDays)
+  return addMinutes(fallback, minutes)
+}
+
+function normalizeRules(rules: ScheduleRule[]): NormalizedRule[] {
+  return rules.map((rule) => {
+    const validFromMs = rule.validFrom ? Date.parse(rule.validFrom) : undefined
+    const validUntilMs = rule.validUntil ? Date.parse(rule.validUntil) : undefined
+
+    return {
+      ...rule,
+      validFromMs: Number.isFinite(validFromMs) ? validFromMs : undefined,
+      validUntilMs: Number.isFinite(validUntilMs) ? validUntilMs : undefined,
+      timezoneOffsetMinutes: rule.timezoneOffsetMinutes ?? MOSCOW_TIME_OFFSET_MINUTES
+    }
+  })
+}
+
+function normalizeExceptions(exceptions: ScheduleException[]): NormalizedException[] {
+  return exceptions
+    .map<NormalizedException | null>((exception) => {
+      const startMs = Date.parse(exception.startsAt)
+      const endMs = Date.parse(exception.endsAt)
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        return null
+      }
+      return {
+        ...exception,
+        startMs,
+        endMs
+      }
+    })
+    .filter((exception): exception is NormalizedException => Boolean(exception))
+}
+
+function buildRollingExceptions(): ScheduleException[] {
+  const mariaTrainingStart = nextLocalDate({
+    dayOfWeek: 3,
+    time: '12:00',
+    offsetMinutes: MOSCOW_TIME_OFFSET_MINUTES
+  })
+
+  const ilyaWorkshopStart = nextLocalDate({
+    dayOfWeek: 4,
+    time: '13:00',
+    offsetMinutes: MOSCOW_TIME_OFFSET_MINUTES
+  })
+
+  return [
+    {
+      id: 'exception-maria-training',
+      specialistId: 'specialist-maria',
+      centerId: 'center-spb',
+      serviceId: 'restoration-basic',
+      startsAt: mariaTrainingStart.toISOString(),
+      endsAt: addMinutes(mariaTrainingStart, 60).toISOString(),
+      reason: 'Обучение команды DEVATA'
+    },
+    {
+      id: 'exception-ilya-workshop',
+      specialistId: 'specialist-ilya',
+      centerId: 'center-msk',
+      startsAt: ilyaWorkshopStart.toISOString(),
+      endsAt: addMinutes(ilyaWorkshopStart, 120).toISOString(),
+      reason: 'Участие в мастер-классе'
+    }
+  ]
+}
+
+export const demoScheduleExceptions: ScheduleException[] = buildRollingExceptions()
+
+type SlotGenerationOptions = {
+  centerId?: string
+  serviceId?: string
+  specialistId?: string
+  from?: Date | string
+  to?: Date | string
+  limit?: number
+}
+
+function ensureSeedReservation(slots: Slot[]) {
+  if (seededReservation || !slots.length) return
+  const prioritized = slots.find((slot) => slot.serviceId === 'restoration-basic') ?? slots[0]
+  if (prioritized) {
+    slotReservations.set(prioritized.id, prioritized.capacity)
+    seededReservation = true
+  }
+}
+
+function applyReservations(slots: Slot[]): Slot[] {
+  ensureSeedReservation(slots)
+  return slots.map((slot) => {
+    const reserved = slotReservations.get(slot.id) ?? 0
+    return {
+      ...slot,
+      remaining: Math.max(0, slot.capacity - reserved)
+    }
+  })
+}
+
+export function getDemoSlots(options: SlotGenerationOptions = {}): Slot[] {
+  const { centerId, serviceId, specialistId } = options
+  const fromDate = parseDateOption(options.from)
+  const toDate = parseDateOption(options.to)
+  const now = new Date()
+  const windowStart = fromDate ?? now
+  const windowEnd = toDate ?? addMinutes(windowStart, DEFAULT_WINDOW_DAYS * 24 * 60)
+
+  if (windowEnd.getTime() < windowStart.getTime()) {
+    return []
+  }
+
+  const limit = Math.max(1, Math.min(options.limit ?? DEFAULT_LIMIT, MAX_LIMIT))
+  const windowStartMs = windowStart.getTime()
+  const windowEndMs = windowEnd.getTime()
+
+  const normalizedRules = normalizeRules(demoScheduleRules).filter((rule) => {
+    if (centerId && rule.centerId !== centerId) return false
+    if (serviceId && rule.serviceId !== serviceId) return false
+    if (specialistId && rule.specialistId !== specialistId) return false
+    if (rule.validUntilMs != null && rule.validUntilMs < windowStartMs) return false
+    if (rule.validFromMs != null && rule.validFromMs > windowEndMs) return false
+    return true
+  })
+
+  if (!normalizedRules.length) {
+    return []
+  }
+
+  const normalizedExceptions = normalizeExceptions(demoScheduleExceptions).filter((exception) => {
+    if (specialistId && exception.specialistId !== specialistId) return false
+    if (centerId && exception.centerId && exception.centerId !== centerId) return false
+    if (serviceId && exception.serviceId && exception.serviceId !== serviceId) return false
+    if (exception.endMs < windowStartMs) return false
+    if (exception.startMs > windowEndMs) return false
+    return true
+  })
+
+  const exceptionsByRule = new Map<string, NormalizedException[]>()
+  for (const rule of normalizedRules) {
+    const matches = normalizedExceptions.filter((exception) => {
+      if (exception.specialistId !== rule.specialistId) return false
+      if (exception.centerId && exception.centerId !== rule.centerId) return false
+      if (exception.serviceId && exception.serviceId !== rule.serviceId) return false
+      return true
+    })
+    exceptionsByRule.set(rule.id, matches)
+  }
+
+  const rulesByOffset = new Map<number, NormalizedRule[]>()
+  for (const rule of normalizedRules) {
+    const list = rulesByOffset.get(rule.timezoneOffsetMinutes) ?? []
+    list.push(rule)
+    rulesByOffset.set(rule.timezoneOffsetMinutes, list)
+  }
+
+  const offsets = Array.from(rulesByOffset.keys()).sort((a, b) => a - b)
+  const slots: Slot[] = []
+
+  outer: for (const offset of offsets) {
+    const rulesForOffset = rulesByOffset.get(offset)
+    if (!rulesForOffset?.length) continue
+
+    const dayStart = startOfLocalDay(windowStart, offset)
+    const dayEnd = startOfLocalDay(windowEnd, offset)
+
+    for (let cursor = dayStart; cursor.getTime() <= dayEnd.getTime(); cursor = addDays(cursor, 1)) {
+      const dayOfWeek = getLocalDayOfWeek(cursor, offset)
+
+      for (const rule of rulesForOffset) {
+        if (!rule.daysOfWeek.includes(dayOfWeek)) continue
+
+        const ruleExceptions = exceptionsByRule.get(rule.id) ?? []
+
+        for (const startTime of rule.startTimes) {
+          const minutes = parseTimeToMinutes(startTime)
+          if (minutes == null) continue
+
+          const slotStart = new Date(cursor.getTime() + minutes * MS_PER_MINUTE)
+          const startMs = slotStart.getTime()
+          if (startMs < windowStartMs || startMs > windowEndMs) continue
+          if (rule.validFromMs != null && startMs < rule.validFromMs) continue
+          if (rule.validUntilMs != null && startMs > rule.validUntilMs) continue
+
+          const endMs = startMs + rule.durationMinutes * MS_PER_MINUTE
+          if (ruleExceptions.some((exception) => startMs < exception.endMs && endMs > exception.startMs)) {
+            continue
+          }
+
+          slots.push({
+            id: `slot-${rule.id}-${slotStart.toISOString()}`,
+            centerId: rule.centerId,
+            serviceId: rule.serviceId,
+            specialistId: rule.specialistId,
+            start: slotStart.toISOString(),
+            end: new Date(endMs).toISOString(),
+            capacity: rule.capacity ?? 1,
+            remaining: rule.capacity ?? 1,
+            room: rule.room,
+            notes: rule.notes
+          })
+
+          if (slots.length >= limit) {
+            break outer
+          }
+        }
+      }
+    }
+  }
+
+  slots.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0))
+  return applyReservations(slots)
+}
 
 export type DemoBookingRecord = BookingResponse & {
   centerId: string
@@ -107,69 +470,6 @@ export class DemoBookingError extends Error {
 
 const demoBookings: DemoBookingRecord[] = []
 
-function buildDemoSlots(): Slot[] {
-  const result: Slot[] = []
-  const startFrom = new Date()
-  startFrom.setHours(9, 0, 0, 0)
-
-  const hours = [10, 12, 15, 18]
-  const daysAhead = 7
-
-  for (const specialist of demoSpecialists) {
-    const centers = specialist.centerIds.length
-      ? specialist.centerIds
-      : demoCenters.map((center) => center.id)
-    const services = specialist.serviceIds.length
-      ? specialist.serviceIds
-      : demoServices.map((service) => service.id)
-
-    centers.forEach((centerId, centerIndex) => {
-      services.forEach((serviceId, serviceIndex) => {
-        const service = demoServices.find((item) => item.id === serviceId)
-        if (!service) return
-
-        for (let day = 0; day < daysAhead; day += 1) {
-          for (const hour of hours) {
-            const start = new Date(startFrom)
-            start.setDate(start.getDate() + day)
-            start.setHours(hour, 0, 0, 0)
-            const end = new Date(start)
-            end.setMinutes(end.getMinutes() + service.durationMinutes)
-
-            const remaining = day === 0 && hour === 15 && serviceIndex === 0 ? 0 : 1
-
-            result.push({
-              id: `slot-${specialist.id}-${centerId}-${serviceId}-${day}-${hour}`,
-              centerId,
-              serviceId,
-              specialistId: specialist.id,
-              start: start.toISOString(),
-              end: end.toISOString(),
-              capacity: 1,
-              remaining,
-              room: centerIndex === 0 ? 'Кабинет 1' : 'Кабинет 2'
-            })
-          }
-        }
-      })
-    })
-  }
-
-  return result
-}
-
-export function getDemoSlots(): Slot[] {
-  const base = buildDemoSlots()
-  return base.map((slot) => {
-    const reserved = slotReservations.get(slot.id) ?? 0
-    const remaining = Math.max(0, slot.remaining - reserved)
-    return {
-      ...slot,
-      remaining
-    }
-  })
-}
-
 function nextDemoBookingId() {
   return `demo-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
 }
@@ -179,7 +479,11 @@ export function listDemoBookings(): DemoBookingRecord[] {
 }
 
 export function createDemoBooking(request: BookingRequest): DemoBookingRecord {
-  const slots = getDemoSlots()
+  const slots = getDemoSlots({
+    centerId: request.centerId,
+    serviceId: request.serviceId,
+    specialistId: request.specialistId
+  })
   const slot = slots.find((item) => item.id === request.slotId)
   if (!slot) {
     throw new DemoBookingError('SLOT_NOT_FOUND', 'Слот не найден', 404)
@@ -214,3 +518,5 @@ export function createDemoBooking(request: BookingRequest): DemoBookingRecord {
 
   return booking
 }
+
+export type { SlotGenerationOptions }
