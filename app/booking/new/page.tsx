@@ -52,6 +52,97 @@ export default function Page() {
   const [status, setStatus] = useState<StatusMessage | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  const selectedCenter = centers.find((center) => center.id === selectedCenterId) ?? null
+  const selectedService = services.find((service) => service.id === selectedServiceId) ?? null
+  const selectedSpecialist =
+    specialists.find((specialist) => specialist.id === selectedSpecialistId) ?? null
+  const selectedSlot = slots.find((slot) => slot.id === selectedSlotId) ?? null
+
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat('ru-RU', {
+        style: 'currency',
+        currency: 'RUB',
+        maximumFractionDigits: 0
+      }),
+    []
+  )
+
+  type PricingSummary = {
+    total: number
+    dueNow: number
+    dueLater: number
+    isOptional: boolean
+    note?: string
+  }
+
+  const pricingSummary = useMemo<PricingSummary | null>(() => {
+    if (!selectedService?.price) return null
+
+    const price = selectedService.price
+    const depositPercent = selectedService.depositPercent ?? 0
+    const depositAmount = Math.min(price, Math.max(0, Math.round((price * depositPercent) / 100)))
+    const paymentPolicy = selectedService.paymentPolicy ?? 'none'
+    const depositDueMinutes = selectedService.depositDueMinutes
+
+    switch (paymentPolicy) {
+      case 'full_prepaid':
+        return {
+          total: price,
+          dueNow: price,
+          dueLater: 0,
+          isOptional: false,
+          note: 'Место подтверждается после полной онлайн-оплаты.'
+        }
+      case 'deposit_required':
+        return {
+          total: price,
+          dueNow: depositAmount,
+          dueLater: Math.max(0, price - depositAmount),
+          isOptional: false,
+          note:
+            depositDueMinutes != null
+              ? `Слот удерживается ${depositDueMinutes} минут после бронирования. Если депозит не поступает, бронь отменяется.`
+              : 'Слот удерживается ограниченное время до поступления депозита.'
+        }
+      case 'deposit_optional':
+        return {
+          total: price,
+          dueNow: depositAmount,
+          dueLater: Math.max(0, price - depositAmount),
+          isOptional: true,
+          note:
+            depositDueMinutes != null
+              ? `Можно внести депозит, чтобы закрепить время. Рекомендуем оплатить в течение ${depositDueMinutes} минут.`
+              : 'Можно внести депозит, чтобы закрепить время, либо оплатить всё в день визита.'
+        }
+      default:
+        return {
+          total: price,
+          dueNow: 0,
+          dueLater: price,
+          isOptional: true,
+          note: 'Оплата производится в центре в день визита.'
+        }
+    }
+  }, [selectedService])
+
+  const paymentHint = useMemo(() => {
+    if (!selectedService) return null
+    const paymentPolicy = selectedService.paymentPolicy ?? 'none'
+
+    switch (paymentPolicy) {
+      case 'full_prepaid':
+        return 'Для фиксации записи требуется полная оплата онлайн.'
+      case 'deposit_required':
+        return 'Для подтверждения записи нужно внести депозит. Остаток оплачивается в день визита.'
+      case 'deposit_optional':
+        return 'Можно внести депозит, чтобы закрепить время. Если не успеете, оплатите полностью в день визита.'
+      default:
+        return 'Предоплата не требуется — оплата производится в центре в день визита.'
+    }
+  }, [selectedService])
+
   useEffect(() => {
     let active = true
     setLoading(true)
@@ -167,11 +258,6 @@ export default function Page() {
       active = false
     }
   }, [selectedCenterId, selectedServiceId, selectedSpecialistId])
-
-  const selectedCenter = centers.find((center) => center.id === selectedCenterId) ?? null
-  const selectedService = services.find((service) => service.id === selectedServiceId) ?? null
-  const selectedSpecialist = specialists.find((specialist) => specialist.id === selectedSpecialistId) ?? null
-  const selectedSlot = slots.find((slot) => slot.id === selectedSlotId) ?? null
 
   const onChangeInput = (field: 'fullName' | 'phone' | 'email' | 'comment') =>
     (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -329,10 +415,21 @@ export default function Page() {
                 {selectedService?.description ? (
                   <span className="text-xs text-slate-500">{selectedService.description}</span>
                 ) : null}
-                {selectedService?.depositPercent != null ? (
-                  <span className="text-xs text-slate-500">
-                    Депозит для фиксации записи: {selectedService.depositPercent}% от стоимости.
-                  </span>
+                {selectedService ? (
+                  <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+                    <div className="flex items-baseline justify-between gap-2 text-slate-700">
+                      <span className="font-medium">Стоимость визита</span>
+                      {selectedService.price != null ? (
+                        <span>{currencyFormatter.format(selectedService.price)}</span>
+                      ) : null}
+                    </div>
+                    {selectedService.depositPercent != null ? (
+                      <div className="mt-1 text-slate-500">
+                        Депозит: {selectedService.depositPercent}% от стоимости.
+                      </div>
+                    ) : null}
+                    {paymentHint ? <div className="mt-2 text-slate-500">{paymentHint}</div> : null}
+                  </div>
                 ) : null}
               </label>
             </div>
@@ -469,6 +566,39 @@ export default function Page() {
                     : 'Email'}
               </li>
             </ul>
+
+            {pricingSummary ? (
+              <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+                <div className="font-medium text-slate-700">Финансовые условия визита</div>
+                <dl className="mt-3 space-y-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-500">Итого</dt>
+                    <dd>{currencyFormatter.format(pricingSummary.total)}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-500">
+                      К оплате сейчас{pricingSummary.isOptional ? ' (по желанию)' : ''}
+                    </dt>
+                    <dd>
+                      {pricingSummary.dueNow === 0
+                        ? 'Не требуется'
+                        : currencyFormatter.format(pricingSummary.dueNow)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-500">Остаток на визите</dt>
+                    <dd>
+                      {pricingSummary.dueLater === 0
+                        ? '—'
+                        : currencyFormatter.format(pricingSummary.dueLater)}
+                    </dd>
+                  </div>
+                </dl>
+                {pricingSummary.note ? (
+                  <p className="mt-3 text-xs text-slate-500">{pricingSummary.note}</p>
+                ) : null}
+              </div>
+            ) : null}
 
             {status ? (
               <div

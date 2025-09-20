@@ -9,12 +9,17 @@ export type Center = {
   phone?: string
 }
 
+export type PaymentPolicy = 'deposit_required' | 'deposit_optional' | 'full_prepaid' | 'none'
+
 export type Service = {
   id: string
   name: string
   description?: string
   durationMinutes: number
+  price?: number
   depositPercent?: number
+  paymentPolicy?: PaymentPolicy
+  depositDueMinutes?: number
   centerIds?: string[]
 }
 
@@ -87,7 +92,10 @@ const fallbackServices: Service[] = [
     name: 'Кинезиологическое восстановление',
     description: '60-минутная индивидуальная работа со специалистом DEVATA.',
     durationMinutes: 60,
+    price: 6500,
     depositPercent: 30,
+    paymentPolicy: 'deposit_required',
+    depositDueMinutes: 20,
     centerIds: ['center-spb', 'center-msk']
   },
   {
@@ -95,7 +103,10 @@ const fallbackServices: Service[] = [
     name: 'Глубокая восстановительная сессия',
     description: '90 минут, расширенная диагностика и сопровождение.',
     durationMinutes: 90,
+    price: 8900,
     depositPercent: 40,
+    paymentPolicy: 'deposit_required',
+    depositDueMinutes: 30,
     centerIds: ['center-spb']
   },
   {
@@ -103,7 +114,10 @@ const fallbackServices: Service[] = [
     name: 'Диагностическая консультация',
     description: '45 минут. Первичный анализ состояния и подбор программы.',
     durationMinutes: 45,
+    price: 4200,
     depositPercent: 20,
+    paymentPolicy: 'deposit_optional',
+    depositDueMinutes: 15,
     centerIds: ['center-msk']
   }
 ]
