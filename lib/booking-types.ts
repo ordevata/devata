@@ -18,6 +18,7 @@ export type Service = {
   depositPercent?: number
   paymentPolicy?: PaymentPolicy
   depositDueMinutes?: number
+  specialistSharePercent?: number
   centerIds?: string[]
 }
 
@@ -92,6 +93,12 @@ export type BookingClient = {
   preferredChannel?: 'email' | 'telegram' | 'whatsapp'
 }
 
+export type BookingReferralContext = {
+  refId?: string
+  path?: string[]
+  attributedAt?: string
+}
+
 export type BookingRequest = {
   centerId: string
   serviceId: string
@@ -99,6 +106,7 @@ export type BookingRequest = {
   slotId: string
   client: BookingClient
   metadata?: Record<string, unknown>
+  referral?: BookingReferralContext
 }
 
 export type BookingStatus = 'reserved' | 'confirmed' | 'simulated'
@@ -115,10 +123,63 @@ export type BookingPaymentSummary = {
   note?: string
 }
 
+export type ReferralAllocation = {
+  level: 1 | 2 | 3 | 4 | 5
+  percent: number
+  amount: number
+  partnerId: string
+}
+
+export type ProfessionalBonusAllocation = {
+  partnerId: string
+  percent: number
+  amount: number
+  specialistSharePercent: number
+  basisAmount: number
+}
+
+export type Fund26Portion = {
+  total: number
+  allocations: ReferralAllocation[]
+  professionalBonus?: ProfessionalBonusAllocation
+  reserve: number
+}
+
+export type Fund74Allocation = {
+  category: 'specialist' | 'lecturer' | 'assistant' | 'operations'
+  percent?: number
+  amount: number
+  description?: string
+}
+
+export type Fund74Portion = {
+  total: number
+  allocations: Fund74Allocation[]
+  remaining: number
+}
+
+export type PaymentComponentKind = 'deposit' | 'balance' | 'full' | 'pay_on_visit'
+
+export type PaymentComponentLedger = {
+  kind: PaymentComponentKind
+  amount: number
+  dueAt?: string
+  fund26: Fund26Portion
+  fund74: Fund74Portion
+}
+
+export type BookingFundsLedger = {
+  currency: string
+  totalAmount?: number
+  components: PaymentComponentLedger[]
+  referralPath?: string[]
+}
+
 export type BookingResponse = {
   bookingId: string
   status: BookingStatus
   slotStart: string
   slotEnd: string
   payment?: BookingPaymentSummary
+  funds?: BookingFundsLedger
 }

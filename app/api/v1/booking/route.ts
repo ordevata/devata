@@ -39,7 +39,8 @@ export async function POST(request: NextRequest) {
         status: booking.status,
         slotStart: booking.slotStart,
         slotEnd: booking.slotEnd,
-        payment: booking.payment
+        payment: booking.payment,
+        funds: booking.funds
       },
       { status: 201 }
     )

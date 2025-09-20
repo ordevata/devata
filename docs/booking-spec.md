@@ -219,11 +219,97 @@ create table booking_events (
     "due_later_amount": 4550,
     "deposit_hold_minutes": 20,
     "deposit_due_at": "2025-09-01T09:20:00+03:00"
+  },
+  "funds": {
+    "currency": "RUB",
+    "total_amount": 6500,
+    "referral_path": [
+      "partner-sergey",
+      "partner-oksana",
+      "partner-vadim",
+      "partner-elena",
+      "partner-nikita"
+    ],
+    "components": [
+      {
+        "kind": "deposit",
+        "amount": 1950,
+        "due_at": "2025-09-01T09:20:00+03:00",
+        "fund26": {
+          "total": 507,
+          "allocations": [
+            { "partner_id": "partner-sergey", "level": 1, "percent": 10, "amount": 195 },
+            { "partner_id": "partner-oksana", "level": 2, "percent": 3, "amount": 58.5 },
+            { "partner_id": "partner-vadim", "level": 3, "percent": 3, "amount": 58.5 },
+            { "partner_id": "partner-elena", "level": 4, "percent": 1, "amount": 19.5 },
+            { "partner_id": "partner-nikita", "level": 5, "percent": 1, "amount": 19.5 }
+          ],
+          "professional_bonus": {
+            "partner_id": "partner-elena",
+            "percent": 2,
+            "amount": 17.55,
+            "specialist_share_percent": 45,
+            "basis_amount": 877.5
+          },
+          "reserve": 138.45
+        },
+        "fund74": {
+          "total": 1443,
+          "allocations": [
+            {
+              "category": "specialist",
+              "percent": 45,
+              "amount": 877.5,
+              "description": "Доля специалиста из операционного фонда"
+            }
+          ],
+          "remaining": 565.5
+        }
+      },
+      {
+        "kind": "balance",
+        "amount": 4550,
+        "fund26": {
+          "total": 1183,
+          "allocations": [
+            { "partner_id": "partner-sergey", "level": 1, "percent": 10, "amount": 455 },
+            { "partner_id": "partner-oksana", "level": 2, "percent": 3, "amount": 136.5 },
+            { "partner_id": "partner-vadim", "level": 3, "percent": 3, "amount": 136.5 },
+            { "partner_id": "partner-elena", "level": 4, "percent": 1, "amount": 45.5 },
+            { "partner_id": "partner-nikita", "level": 5, "percent": 1, "amount": 45.5 }
+          ],
+          "professional_bonus": {
+            "partner_id": "partner-elena",
+            "percent": 2,
+            "amount": 40.95,
+            "specialist_share_percent": 45,
+            "basis_amount": 2047.5
+          },
+          "reserve": 323.05
+        },
+        "fund74": {
+          "total": 3367,
+          "allocations": [
+            {
+              "category": "specialist",
+              "percent": 45,
+              "amount": 2047.5,
+              "description": "Доля специалиста из операционного фонда"
+            }
+          ],
+          "remaining": 1319.5
+        }
+      }
+    ]
   }
 }
 ```
 Если услуге не требуется предоплата, поле `payment` возвращается с политикой `none` или не возвращается вовсе. Статус `reserved`
 означает, что слот удерживается до внесения депозита/оплаты; после успешного платежа брони переходят в `confirmed`.
+
+Блок `funds` демонстрирует, как по каждой оплате рассчитывается фонд 26%/74% и сеть 10/3/3/1/1. В демо-API мы возвращаем список
+партнёров по уровням, сумму профессионального бонуса (2% от дохода специалиста) и остаток фонда 26%, а также долю специалиста в
+операционном фонде 74%. Эти данные станут основой для таблицы `funds_ledger` и отчётов в реальном backend.
 Ошибки:
 - `409 Conflict` — слот занят. В теле ответа вернуть ближайшие альтернативы:
 ```json

@@ -17,7 +17,7 @@ npm run dev
 - `GET /api/v1/catalog/services?center_id=...` — услуги с учётом выбранного центра.
 - `GET /api/v1/catalog/specialists?center_id=...&service_id=...` — специалисты.
 - `GET /api/v1/booking/slots?center_id=...&service_id=...&specialist_id=...` — доступные слоты.
-- `POST /api/v1/booking` — создание брони (возвращает `bookingId` и подтверждает слот до перезагрузки сервера).
+- `POST /api/v1/booking` — создание брони (возвращает `bookingId`, платёжные условия и учебный `funds`-разрез по фондам 26%/74%).
 
 Эндпоинты используют общие демо-данные и позволяют фронтенду работать «из коробки», а также служат контрактом для будущего реального API.
 

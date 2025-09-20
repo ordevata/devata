@@ -10,6 +10,8 @@ import type {
   Specialist
 } from './booking-types'
 
+import { buildFundsLedger } from './funds-ledger'
+
 const MS_PER_MINUTE = 60 * 1000
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 const DEFAULT_WINDOW_DAYS = 21
@@ -130,6 +132,7 @@ export const demoServices: Service[] = [
     depositPercent: 30,
     paymentPolicy: 'deposit_required',
     depositDueMinutes: 20,
+    specialistSharePercent: 45,
     centerIds: ['center-spb', 'center-msk']
   },
   {
@@ -141,6 +144,7 @@ export const demoServices: Service[] = [
     depositPercent: 40,
     paymentPolicy: 'deposit_required',
     depositDueMinutes: 30,
+    specialistSharePercent: 45,
     centerIds: ['center-spb']
   },
   {
@@ -152,6 +156,7 @@ export const demoServices: Service[] = [
     depositPercent: 20,
     paymentPolicy: 'deposit_optional',
     depositDueMinutes: 15,
+    specialistSharePercent: 45,
     centerIds: ['center-msk']
   }
 ]
@@ -174,6 +179,69 @@ export const demoSpecialists: Specialist[] = [
     serviceIds: ['restoration-basic', 'diagnostics']
   }
 ]
+
+type DemoPartner = {
+  id: string
+  fullName: string
+  parentId?: string
+  trained?: boolean
+}
+
+export const demoPartners: DemoPartner[] = [
+  { id: 'partner-stella', fullName: 'Стелла Власова', trained: true },
+  { id: 'partner-nikita', fullName: 'Никита Журавлёв', parentId: 'partner-stella', trained: true },
+  { id: 'partner-elena', fullName: 'Елена Орлова', parentId: 'partner-nikita', trained: true },
+  { id: 'partner-vadim', fullName: 'Вадим Киселёв', parentId: 'partner-elena' },
+  { id: 'partner-oksana', fullName: 'Оксана Морозова', parentId: 'partner-vadim', trained: true },
+  { id: 'partner-sergey', fullName: 'Сергей Павлов', parentId: 'partner-oksana' }
+]
+
+const partnerIndex = new Map(demoPartners.map((partner) => [partner.id, partner]))
+
+function buildReferralPath(rootPartnerId: string, maxDepth = 5): string[] {
+  const path: string[] = []
+  let currentId: string | undefined = rootPartnerId
+  let depth = 0
+
+  while (currentId && depth < maxDepth) {
+    const partner = partnerIndex.get(currentId)
+    if (!partner) break
+    path.push(partner.id)
+    currentId = partner.parentId
+    depth += 1
+  }
+
+  return path
+}
+
+const defaultReferralRoots: Record<string, string> = {
+  'restoration-basic': 'partner-sergey',
+  'restoration-advanced': 'partner-oksana',
+  diagnostics: 'partner-vadim'
+}
+
+const specialistMentorBySpecialist: Record<string, string> = {
+  'specialist-maria': 'partner-elena',
+  'specialist-ilya': 'partner-oksana'
+}
+
+function resolveReferralPath(request: BookingRequest): string[] {
+  const explicitPath = request.referral?.path?.filter((value): value is string => typeof value === 'string' && value.length > 0)
+  if (explicitPath && explicitPath.length) {
+    return explicitPath.slice(0, 5)
+  }
+
+  if (request.referral?.refId) {
+    return buildReferralPath(request.referral.refId)
+  }
+
+  const defaultRoot = defaultReferralRoots[request.serviceId]
+  if (defaultRoot) {
+    return buildReferralPath(defaultRoot)
+  }
+
+  return []
+}
 
 export const demoScheduleRules: ScheduleRule[] = [
   {
@@ -588,6 +656,19 @@ export function createDemoBooking(request: BookingRequest): DemoBookingRecord {
     (payment.policy === 'full_prepaid' ||
       (payment.policy === 'deposit_required' && (payment.dueNowAmount ?? 0) > 0))
 
+  const referralPath = resolveReferralPath(request)
+  const specialistSharePercent = service?.specialistSharePercent
+  const professionalMentorId = specialistMentorBySpecialist[request.specialistId]
+  const funds = payment
+    ? buildFundsLedger({
+        payment,
+        referralPath,
+        specialistSharePercent,
+        professionalMentorId,
+        totalAmountFallback: service?.price
+      })
+    : undefined
+
   const booking: DemoBookingRecord = {
     bookingId: nextDemoBookingId(),
     status: requiresUpfrontConfirmation ? 'reserved' : 'confirmed',
@@ -599,7 +680,8 @@ export function createDemoBooking(request: BookingRequest): DemoBookingRecord {
     slotId: request.slotId,
     client: request.client,
     createdAt: new Date().toISOString(),
-    payment
+    payment,
+    funds
   }
 
   demoBookings.push(booking)
