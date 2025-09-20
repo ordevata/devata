@@ -8,7 +8,18 @@
 npm i
 npm run dev
 ```
-Переменные среды: создайте `.env.local` и задайте `NEXT_PUBLIC_API_BASE=https://api.devata.ru/v1` (или локальный URL).
+Переменные среды: создайте `.env.local` и задайте `NEXT_PUBLIC_API_BASE=https://api.devata.ru/v1` (или оставьте значение по умолчанию `/api/v1` для встроенного демо-API).
+
+## Демо-API внутри Next.js
+Для разработки без внешнего backend в проект добавлены эндпоинты `app/api/v1/*`, которые отдают те же демо-данные, что и фронтенд.
+
+- `GET /api/v1/catalog/centers` — центры DEVATA.
+- `GET /api/v1/catalog/services?center_id=...` — услуги с учётом выбранного центра.
+- `GET /api/v1/catalog/specialists?center_id=...&service_id=...` — специалисты.
+- `GET /api/v1/booking/slots?center_id=...&service_id=...&specialist_id=...` — доступные слоты.
+- `POST /api/v1/booking` — создание брони (возвращает `bookingId` и подтверждает слот до перезагрузки сервера).
+
+Эндпоинты используют общие демо-данные и позволяют фронтенду работать «из коробки», а также служат контрактом для будущего реального API.
 
 ## Деплой на Vercel
 1) Загрузите содержимое репозитория в GitHub
