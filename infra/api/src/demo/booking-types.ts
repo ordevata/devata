@@ -183,3 +183,27 @@ export type BookingResponse = {
   payment?: BookingPaymentSummary
   funds?: BookingFundsLedger
 }
+
+export type BookingRecord = BookingResponse & {
+  centerId: string
+  serviceId: string
+  specialistId: string
+  slotId: string
+  client: BookingClient
+  createdAt: string
+}
+
+export type BookingListFilters = {
+  centerId?: string
+  serviceId?: string
+  specialistId?: string
+  phone?: string
+  email?: string
+  status?: BookingStatus[]
+}
+
+export type BookingListResponse = {
+  bookings: BookingRecord[]
+  total: number
+  generatedAt: string
+}

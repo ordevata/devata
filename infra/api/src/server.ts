@@ -1,14 +1,15 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { URL, pathToFileURL } from 'node:url'
 
-import type { BookingRequest } from './demo/booking-types.js'
+import type { BookingListFilters, BookingRequest, BookingStatus } from './demo/booking-types.js'
 import {
   DemoBookingError,
   createDemoBooking,
   demoCenters,
   demoServices,
   demoSpecialists,
-  getDemoSlots
+  getDemoSlots,
+  queryDemoBookings
 } from './demo/data.js'
 
 function setDefaultHeaders(res: ServerResponse): void {
@@ -25,6 +26,8 @@ function setDefaultHeaders(res: ServerResponse): void {
 function asQueryString(value: string | null): string | undefined {
   return value ?? undefined
 }
+
+const ALLOWED_STATUSES: BookingStatus[] = ['reserved', 'expired', 'confirmed', 'simulated']
 
 function validateBookingPayload(payload: BookingRequest): void {
   if (!payload.centerId) throw new Error('centerId обязателен')
@@ -208,6 +211,39 @@ function createRequestHandler() {
         })
 
         sendJson(res, 200, slots)
+        return
+      }
+
+      if (req.method === 'GET' && pathname === '/v1/booking') {
+        const filters: BookingListFilters = {}
+
+        const centerId = asQueryString(requestUrl.searchParams.get('center_id'))
+        const serviceId = asQueryString(requestUrl.searchParams.get('service_id'))
+        const specialistId = asQueryString(requestUrl.searchParams.get('specialist_id'))
+        const phone = asQueryString(requestUrl.searchParams.get('phone'))
+        const email = asQueryString(requestUrl.searchParams.get('email'))
+
+        if (centerId) filters.centerId = centerId
+        if (serviceId) filters.serviceId = serviceId
+        if (specialistId) filters.specialistId = specialistId
+        if (phone) filters.phone = phone
+        if (email) filters.email = email
+
+        const statusParams = requestUrl.searchParams.getAll('status')
+        const statuses = statusParams.filter((value): value is BookingStatus =>
+          ALLOWED_STATUSES.includes(value as BookingStatus)
+        )
+        if (statuses.length) {
+          filters.status = Array.from(new Set(statuses))
+        }
+
+        const bookings = queryDemoBookings(filters)
+
+        sendJson(res, 200, {
+          bookings,
+          total: bookings.length,
+          generatedAt: new Date().toISOString()
+        })
         return
       }
 

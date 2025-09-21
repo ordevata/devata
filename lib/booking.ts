@@ -1,5 +1,8 @@
 import { api } from './api'
 import type {
+  BookingListFilters,
+  BookingListResponse,
+  BookingRecord,
   BookingRequest,
   BookingResponse,
   Center,
@@ -12,14 +15,19 @@ import {
   demoCenters,
   demoServices,
   demoSpecialists,
-  getDemoSlots
+  getDemoSlots,
+  queryDemoBookings
 } from './demo-data'
 
 export type {
   PaymentPolicy,
+  BookingRecord,
+  BookingListFilters,
+  BookingListResponse,
   BookingRequest,
   BookingResponse,
   BookingPaymentSummary,
+  BookingStatus,
   Center,
   Service,
   Slot,
@@ -109,4 +117,33 @@ export async function createBooking(request: BookingRequest): Promise<BookingRes
     }
     throw error instanceof Error ? error : new Error('Не удалось создать бронь')
   }
+}
+
+export async function listBookings(
+  filters: BookingListFilters = {}
+): Promise<BookingListResponse> {
+  const search = new URLSearchParams()
+
+  if (filters.centerId) search.set('center_id', filters.centerId)
+  if (filters.serviceId) search.set('service_id', filters.serviceId)
+  if (filters.specialistId) search.set('specialist_id', filters.specialistId)
+  if (filters.phone) search.set('phone', filters.phone)
+  if (filters.email) search.set('email', filters.email)
+  if (filters.status?.length) {
+    for (const status of filters.status) {
+      search.append('status', status)
+    }
+  }
+
+  const query = search.toString()
+  const path = `/booking${query ? `?${query}` : ''}`
+
+  return fetchWithFallback(path, () => {
+    const bookings = queryDemoBookings(filters)
+    return {
+      bookings,
+      total: bookings.length,
+      generatedAt: new Date().toISOString()
+    }
+  })
 }

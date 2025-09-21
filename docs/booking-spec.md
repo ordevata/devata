@@ -76,6 +76,7 @@ create type schedule_exception_kind as enum ('closed', 'extended');
 | GET | /centers/{centerId}/services | Список услуг центра |
 | GET | /services/{serviceId}/specialists | Активные специалисты по услуге |
 | GET | /booking/slots | Получение доступных слотов |
+| GET | /booking | Список броней с фильтрами |
 | POST | /booking | Создание брони |
 
 #### 4.1.1 GET /booking/slots
@@ -246,6 +247,52 @@ create type schedule_exception_kind as enum ('closed', 'extended');
   ]
 }
 ```
+
+#### 4.1.3 GET /booking
+
+Параметры запроса (опционально):
+
+- `center_id`, `service_id`, `specialist_id` — фильтрация по местоположению и специалисту.
+- `phone`, `email` — поиск по контактам клиента (регистронезависимый, поддерживает частичное совпадение).
+- `status` — может повторяться несколько раз (поддерживаем `reserved`, `confirmed`, `expired`, `simulated`).
+
+Ответ `200 OK`:
+
+```json
+{
+  "bookings": [
+    {
+      "bookingId": "demo-1234",
+      "status": "reserved",
+      "slotStart": "2025-09-01T09:00:00+03:00",
+      "slotEnd": "2025-09-01T10:00:00+03:00",
+      "centerId": "center-spb",
+      "serviceId": "restoration-basic",
+      "specialistId": "specialist-maria",
+      "slotId": "slot-rule-maria-basic-weekdays-2025-09-01T06:00:00.000Z",
+      "client": {
+        "fullName": "Иван Иванов",
+        "phone": "+79990000000",
+        "email": "ivan@example.com"
+      },
+      "createdAt": "2025-08-20T12:15:00+03:00",
+      "payment": {
+        "policy": "deposit_required",
+        "currency": "RUB",
+        "totalAmount": 6500,
+        "dueNowAmount": 1950,
+        "dueLaterAmount": 4550,
+        "depositDueAt": "2025-08-20T12:35:00+03:00"
+      }
+    }
+  ],
+  "total": 1,
+  "generatedAt": "2025-08-20T09:16:00Z"
+}
+```
+
+Использование: клиентский кабинет, напоминания и ручная сверка статусов. В боевом окружении эндпоинт защищается аутентификацией и
+автоматически фильтруется по текущему пользователю.
 
 ### 4.2 Приватные эндпоинты (кабинеты / админка)
 Требуют аутентификации (JWT/Session). Префикс `/v1/internal`.

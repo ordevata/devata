@@ -1,7 +1,8 @@
 import type {
+  BookingListFilters,
   BookingPaymentSummary,
+  BookingRecord,
   BookingRequest,
-  BookingResponse,
   Center,
   ScheduleException,
   ScheduleRule,
@@ -32,18 +33,41 @@ type ReservationState = {
 const slotReservations = new Map<string, ReservationState>()
 let seededReservation = false
 
-type DemoBookingRecord = BookingResponse & {
-  centerId: string
-  serviceId: string
-  specialistId: string
-  slotId: string
-  client: BookingRequest['client']
-  createdAt: string
+type DemoBookingErrorCode = 'SLOT_NOT_FOUND' | 'SLOT_MISMATCH' | 'SLOT_UNAVAILABLE'
+const demoBookings: BookingRecord[] = []
+
+function normalizePhone(value?: string): string {
+  if (!value) return ''
+  return value.replace(/[^+\d]/g, '')
 }
 
-type DemoBookingErrorCode = 'SLOT_NOT_FOUND' | 'SLOT_MISMATCH' | 'SLOT_UNAVAILABLE'
+function normalizeText(value?: string): string {
+  return value?.trim().toLowerCase() ?? ''
+}
 
-const demoBookings: DemoBookingRecord[] = []
+function matchesBookingFilters(booking: BookingRecord, filters: BookingListFilters): boolean {
+  if (filters.centerId && booking.centerId !== filters.centerId) return false
+  if (filters.serviceId && booking.serviceId !== filters.serviceId) return false
+  if (filters.specialistId && booking.specialistId !== filters.specialistId) return false
+
+  if (filters.status?.length && !filters.status.includes(booking.status)) {
+    return false
+  }
+
+  if (filters.phone) {
+    const haystack = normalizePhone(booking.client.phone)
+    const needle = normalizePhone(filters.phone)
+    if (!haystack.includes(needle)) return false
+  }
+
+  if (filters.email) {
+    const haystack = normalizeText(booking.client.email)
+    const needle = normalizeText(filters.email)
+    if (!haystack || !haystack.includes(needle)) return false
+  }
+
+  return true
+}
 
 function getReservationState(slotId: string): ReservationState {
   let state = slotReservations.get(slotId)
@@ -675,7 +699,7 @@ export function getDemoSlots(options: SlotGenerationOptions = {}): Slot[] {
   return applyReservations(slots)
 }
 
-export type { DemoBookingRecord, DemoBookingErrorCode }
+export type { DemoBookingErrorCode }
 
 export class DemoBookingError extends Error {
   code: DemoBookingErrorCode
@@ -692,12 +716,21 @@ function nextDemoBookingId() {
   return `demo-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
 }
 
-export function listDemoBookings(): DemoBookingRecord[] {
+export function queryDemoBookings(filters: BookingListFilters = {}): BookingRecord[] {
   pruneExpiredReservations()
-  return [...demoBookings]
+  const filtered = demoBookings.filter((booking) => matchesBookingFilters(booking, filters))
+  filtered.sort((a, b) => (a.slotStart < b.slotStart ? -1 : a.slotStart > b.slotStart ? 1 : 0))
+  return filtered.map((booking) => ({
+    ...booking,
+    client: { ...booking.client }
+  }))
 }
 
-export function createDemoBooking(request: BookingRequest): DemoBookingRecord {
+export function listDemoBookings(): BookingRecord[] {
+  return queryDemoBookings()
+}
+
+export function createDemoBooking(request: BookingRequest): BookingRecord {
   pruneExpiredReservations()
 
   const slots = getDemoSlots({
@@ -741,7 +774,7 @@ export function createDemoBooking(request: BookingRequest): DemoBookingRecord {
       })
     : undefined
 
-  const booking: DemoBookingRecord = {
+  const booking: BookingRecord = {
     bookingId: nextDemoBookingId(),
     status: requiresUpfrontConfirmation ? 'reserved' : 'confirmed',
     slotStart: slot.start,
