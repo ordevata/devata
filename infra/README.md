@@ -11,6 +11,7 @@
 ```
 infra/
 ├── api/                # демо-API (TypeScript, собственный HTTP-сервер)
+├── whatsapp-gateway/   # каркас собственного WhatsApp-шлюза (Fastify)
 ├── db-backups/         # каталог для архивов pg_dump (оставьте пустым, .gitkeep)
 ├── reverse-proxy/      # конфигурация Caddy
 ├── scripts/            # утилиты обслуживания (backup-db.sh)
@@ -26,7 +27,7 @@ docker compose up -d --build
 # Проверяем статус
 docker compose ps
 ```
-После успешного запуска маршрут `https://api.devata.ru/healthz` возвращает JSON `{ "ok": true }`. Сам сервис реализует те же эндпоинты, что и встроенный демо-API в Next.js (`/v1/catalog/*`, `/v1/booking/*`), используя общие тестовые данные, расчёт депозитов и фондов 26/74.
+После успешного запуска маршруты `https://api.devata.ru/healthz` и `https://wa.devata.ru/healthz` возвращают JSON `{ "ok": true }`. Сам сервис реализует те же эндпоинты, что и встроенный демо-API в Next.js (`/v1/catalog/*`, `/v1/booking/*`), используя общие тестовые данные, расчёт депозитов и фондов 26/74. Шлюз WhatsApp пока работает как заглушка — он принимает запросы от n8n и умеет пересылать входящие события в n8n.
 
 ### Автонастройка сервера
 

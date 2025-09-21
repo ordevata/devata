@@ -40,7 +40,7 @@
 **Цель:** расширить коммуникации до триады email + Telegram + WhatsApp.
 - **Telegram:** бот, хранение `chat_id`, рассылка через n8n Telegram node.
 - **Email:** SMTP, шаблоны в HTML, DKIM/SPF в DNS.
-- **WhatsApp:** запуск собственного шлюза (Node.js + Baileys) на `wa.devata.ru`, авторизация по QR, REST API `/send` и `/wa/inbound` с HMAC. Троттлинг и «тихие часы».
+- **WhatsApp:** запуск собственного шлюза (Node.js + Baileys) на `wa.devata.ru`, авторизация по QR, REST API `/send` и `/wa/inbound` с HMAC. Троттлинг и «тихие часы». На этапе подготовки используем заглушку `infra/whatsapp-gateway`, чтобы протестировать интеграцию с n8n и Caddy.
 - **n8n:** fallback на email/TG при недоступности WhatsApp, логирование в Google Sheets.
 - DoD: уведомления по всем трём каналам при записи, переносе, отмене и напоминаниях (T-24/T-2/T-15). Автоматическое переключение при сбое одного из каналов.
 

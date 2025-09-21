@@ -15,3 +15,13 @@ api.devata.ru {
     Content-Security-Policy "default-src 'self'"
   }
 }
+
+wa.devata.ru {
+  encode zstd gzip
+  reverse_proxy wa_gateway:8080
+
+  @health path /healthz
+  handle @health {
+    respond 200
+  }
+}

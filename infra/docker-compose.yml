@@ -13,6 +13,7 @@ services:
       - caddy_config:/config
     depends_on:
       - api
+      - wa_gateway
 
   api:
     build: ./api
@@ -50,6 +51,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  wa_gateway:
+    build: ./whatsapp-gateway
+    restart: unless-stopped
+    environment:
+      - PORT=8080
+      - OUTBOUND_TOKEN=please-change-me
+      - RATE_LIMIT_PER_MINUTE=20
+    expose:
+      - '8080'
 
 volumes:
   caddy_data:

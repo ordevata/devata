@@ -18,6 +18,11 @@ DEVATA API → Webhook → n8n → Каналы (SMTP, Telegram Bot API, WhatsAp
 - Каждый канал оформлен отдельным node в n8n.
 - Фолбэки реализуются через IF / Switch ноды и глобальный сервис конфигурации.
 - Вебхуки API подписывают payload HMAC-SHA256 (секрет `N8N_WEBHOOK_SECRET`). n8n проверяет подпись в первой ноде Function.
+- WhatsApp обрабатывается отдельным микросервисом `infra/whatsapp-gateway` (Fastify), который в текущей версии выступает заглушкой:
+  - `POST /send` принимает сообщения от n8n и логирует их (позже добавим отправку через Baileys/Cloud API).
+  - `POST /simulate/inbound` имитирует входящие события и пересылает их в n8n с подписью `x-signature`.
+  - `GET /healthz` используется для проверок Caddy и мониторинга.
+  - Авторизация — токен в заголовке `Authorization: Bearer ...`, плюс ограничение по числу сообщений в минуту.
 - Все отправленные сообщения логируются в Google Sheets `Notifications` и в Supabase таблицу `notification_logs` (через HTTP Request node в API).
 
 ### 2.1 Приоритет каналов
