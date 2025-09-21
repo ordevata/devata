@@ -1,0 +1,392 @@
+{
+  "name": "DEVATA Booking Confirmation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "booking-confirmation",
+        "options": {
+          "responseCode": 200,
+          "responseMode": "lastNode",
+          "responseData": "firstEntryJson"
+        }
+      },
+      "id": "WebhookTrigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [60, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const crypto = require('crypto');\nconst secret = $env.N8N_WEBHOOK_SECRET;\nconst signature = $headers['x-signature'];\nconst body = JSON.stringify(items[0].json);\nconst expected = crypto.createHmac('sha256', secret).update(body).digest('hex');\nif (signature !== expected) {\n  throw new Error('Invalid signature');\n}\nreturn items;"
+      },
+      "id": "ValidateSignature",
+      "name": "Validate Signature",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.meta.api_base}}/internal/notification-preferences/{{$json.data.person_id}}",
+        "options": {
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer {{$env.SUPABASE_SERVICE_TOKEN}}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "FetchPreferences",
+      "name": "Fetch Preferences",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "event",
+              "value": "booking.created"
+            }
+          ],
+          "boolean": [],
+          "number": [],
+          "json": [
+            {
+              "name": "customer",
+              "value": "={{$json.data.customer}}"
+            },
+            {
+              "name": "booking",
+              "value": "={{$json.data.booking}}"
+            },
+            {
+              "name": "preferences",
+              "value": "={{$json.body}}"
+            }
+          ]
+        }
+      },
+      "id": "PrepareContext",
+      "name": "Prepare Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.preferences.whatsapp.enabled === true}}"
+            }
+          ]
+        }
+      },
+      "id": "IfWhatsApp",
+      "name": "WA Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [860, 160]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.preferences.whatsapp.gateway_url}}/send",
+        "options": {
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer {{$env.WA_GATEWAY_TOKEN}}"
+              }
+            ]
+          }
+        },
+        "jsonParameters": true,
+        "body": "={{ { to: $json.preferences.whatsapp.jid, type: 'text', text: { body: 'Здравствуйте, ' + $json.customer.name + '! Ваша запись ' + $json.booking.starts_at + ' подтверждена.' }, meta: { event: 'booking.created' } } }}"
+      },
+      "id": "SendWhatsApp",
+      "name": "Send WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1060, 60]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.preferences.telegram.enabled === true}}"
+            }
+          ]
+        }
+      },
+      "id": "IfTelegram",
+      "name": "TG Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.preferences.telegram.chat_id}}",
+        "text": "=Здравствуйте, {{$json.customer.name}}! Ваша запись {{$json.booking.starts_at}} подтверждена.",
+        "additionalFields": {
+          "disableNotification": false
+        }
+      },
+      "id": "SendTelegram",
+      "name": "Send Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1060, 260],
+      "credentials": {
+        "telegramApi": "TELEGRAM_DEVATA_BOT"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.preferences.email.enabled !== false}}"
+            }
+          ]
+        }
+      },
+      "id": "IfEmail",
+      "name": "Email Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [860, 460]
+    },
+    {
+      "parameters": {
+        "fromEmail": "booking@devata.ru",
+        "toEmail": "={{$json.customer.email}}",
+        "subject": "DEVATA: запись подтверждена",
+        "text": "=Здравствуйте, {{$json.customer.name}}! Ваша запись {{$json.booking.starts_at}} подтверждена.",
+        "html": "=<p>Здравствуйте, {{$json.customer.name}}!</p><p>Ваша запись {{$json.booking.starts_at}} подтверждена. До встречи в центре DEVATA.</p>",
+        "options": {}
+      },
+      "id": "SendEmail",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [1060, 460],
+      "credentials": {
+        "smtp": "SMTP_DEVATA"
+      }
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "json": [
+            {
+              "name": "log",
+              "value": "={{ { event: 'booking.created', person_id: $json.customer.person_id, booking_id: $json.booking.id, channels: $json.preferences, meta: { source: 'n8n.booking-confirmation' } } }}"
+            }
+          ]
+        }
+      },
+      "id": "PrepareLog",
+      "name": "Prepare Log",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [1260, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.meta.api_base}}/internal/notification-logs",
+        "jsonParameters": true,
+        "body": "={{$json.log}}",
+        "options": {
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer {{$env.SUPABASE_SERVICE_TOKEN}}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "StoreLog",
+      "name": "Store Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1460, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Signature": {
+      "main": [
+        [
+          {
+            "node": "Fetch Preferences",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Preferences": {
+      "main": [
+        [
+          {
+            "node": "Prepare Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Context": {
+      "main": [
+        [
+          {
+            "node": "WA Enabled?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "TG Enabled?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TG Enabled?",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Prepare Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TG Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email Enabled?",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Send Telegram": {
+      "main": [
+        [
+          {
+            "node": "Prepare Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Log",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Send Email": {
+      "main": [
+        [
+          {
+            "node": "Prepare Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Log": {
+      "main": [
+        [
+          {
+            "node": "Store Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "devata-booking-confirmation"
+}

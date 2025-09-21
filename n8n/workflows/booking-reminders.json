@@ -1,0 +1,403 @@
+{
+  "name": "DEVATA Booking Reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "every": {
+                "hours": 1
+              }
+            }
+          ]
+        }
+      },
+      "id": "Cron",
+      "name": "Hourly Sweep",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [60, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.API_BASE_URL}}/internal/notifications/due?event=booking.reminder",
+        "options": {
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer {{$env.SUPABASE_SERVICE_TOKEN}}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "FetchDue",
+      "name": "Fetch Due Reminders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "id": "Split",
+      "name": "Split Reminders",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "json": [
+            {
+              "name": "customer",
+              "value": "={{$json.customer}}"
+            },
+            {
+              "name": "booking",
+              "value": "={{$json.booking}}"
+            },
+            {
+              "name": "preferences",
+              "value": "={{$json.preferences}}"
+            },
+            {
+              "name": "reminder",
+              "value": "={{$json.reminder}}"
+            }
+          ],
+          "string": [
+            {
+              "name": "event",
+              "value": "booking.reminder"
+            }
+          ]
+        }
+      },
+      "id": "PrepareReminder",
+      "name": "Prepare Reminder",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.preferences.whatsapp.enabled === true}}"
+            }
+          ]
+        }
+      },
+      "id": "IfWA",
+      "name": "WA Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [860, 160]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.preferences.whatsapp.gateway_url}}/send",
+        "options": {
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer {{$env.WA_GATEWAY_TOKEN}}"
+              }
+            ]
+          }
+        },
+        "jsonParameters": true,
+        "body": "={{ { to: $json.preferences.whatsapp.jid, type: 'text', text: { body: 'Напоминание DEVATA: визит ' + $json.booking.starts_at + '. До встречи!' }, meta: { event: 'booking.reminder', kind: $json.reminder.kind } } }}"
+      },
+      "id": "SendWA",
+      "name": "Send WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1060, 60]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.preferences.telegram.enabled === true}}"
+            }
+          ]
+        }
+      },
+      "id": "IfTG",
+      "name": "TG Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.preferences.telegram.chat_id}}",
+        "text": "=Напоминание DEVATA: визит {{$json.booking.starts_at}}. До встречи!"
+      },
+      "id": "SendTG",
+      "name": "Send Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1060, 260],
+      "credentials": {
+        "telegramApi": "TELEGRAM_DEVATA_BOT"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.preferences.email.enabled !== false}}"
+            }
+          ]
+        }
+      },
+      "id": "IfEmail",
+      "name": "Email Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [860, 460]
+    },
+    {
+      "parameters": {
+        "fromEmail": "reminder@devata.ru",
+        "toEmail": "={{$json.customer.email}}",
+        "subject": "DEVATA: напоминание о визите",
+        "text": "=Здравствуйте, {{$json.customer.name}}! Напоминаем о визите {{$json.booking.starts_at}}.",
+        "html": "=<p>Здравствуйте, {{$json.customer.name}}!</p><p>Напоминаем о визите {{$json.booking.starts_at}}. Ждём вас в центре DEVATA.</p>"
+      },
+      "id": "SendEmail",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [1060, 460],
+      "credentials": {
+        "smtp": "SMTP_DEVATA"
+      }
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "json": [
+            {
+              "name": "log",
+              "value": "={{ { event: 'booking.reminder', person_id: $json.customer.person_id, booking_id: $json.booking.id, reminder_kind: $json.reminder.kind, meta: { source: 'n8n.booking-reminders' } } }}"
+            }
+          ]
+        }
+      },
+      "id": "PrepareLog",
+      "name": "Prepare Log",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [1260, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.API_BASE_URL}}/internal/notification-logs",
+        "jsonParameters": true,
+        "body": "={{$json.log}}",
+        "options": {
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer {{$env.SUPABASE_SERVICE_TOKEN}}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "StoreLog",
+      "name": "Store Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1460, 300]
+    }
+  ],
+  "connections": {
+    "Hourly Sweep": {
+      "main": [
+        [
+          {
+            "node": "Fetch Due Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Due Reminders": {
+      "main": [
+        [
+          {
+            "node": "Split Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Reminders": {
+      "main": [
+        [
+          {
+            "node": "Prepare Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "after": [
+        [
+          {
+            "node": "Split Reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Reminder": {
+      "main": [
+        [
+          {
+            "node": "WA Enabled?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "TG Enabled?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TG Enabled?",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Prepare Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TG Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email Enabled?",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Send Telegram": {
+      "main": [
+        [
+          {
+            "node": "Prepare Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Log",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Send Email": {
+      "main": [
+        [
+          {
+            "node": "Prepare Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Log": {
+      "main": [
+        [
+          {
+            "node": "Store Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "devata-booking-reminders"
+}

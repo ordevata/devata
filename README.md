@@ -28,3 +28,10 @@ npm run dev
 1) Загрузите содержимое репозитория в GitHub
 2) Vercel → Add New Project → выберите репозиторий → Deploy
 3) Привяжите домен `app.devata.ru` в Settings → Domains
+
+## Дополнительная документация
+- [Дорожная карта внедрения](./docs/roadmap.md)
+- [Техническая спецификация бронирований](./docs/booking-spec.md)
+- [Минимальное развертывание инфраструктуры](./docs/deployment-minimal.md)
+- [Спецификация платёжных потоков](./docs/payments-spec.md)
+- [Уведомления email/Telegram/WhatsApp через n8n](./docs/notifications-spec.md)

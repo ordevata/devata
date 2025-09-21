@@ -1,0 +1,299 @@
+{
+  "name": "DEVATA Deposit Expired",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "deposit-expired",
+        "options": {
+          "responseCode": 200,
+          "responseMode": "lastNode",
+          "responseData": "firstEntryJson"
+        }
+      },
+      "id": "Webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [60, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const crypto = require('crypto');\nconst secret = $env.N8N_WEBHOOK_SECRET;\nconst signature = $headers['x-signature'];\nconst payload = JSON.stringify(items[0].json);\nconst expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');\nif (signature !== expected) {\n  throw new Error('Invalid signature');\n}\nreturn items;"
+      },
+      "id": "ValidateSignature",
+      "name": "Validate Signature",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "json": [
+            {
+              "name": "customer",
+              "value": "={{$json.data.customer}}"
+            },
+            {
+              "name": "booking",
+              "value": "={{$json.data.booking}}"
+            },
+            {
+              "name": "preferences",
+              "value": "={{$json.data.preferences}}"
+            },
+            {
+              "name": "meta",
+              "value": "={{$json.meta}}"
+            }
+          ],
+          "string": [
+            {
+              "name": "event",
+              "value": "payment.expired"
+            }
+          ]
+        }
+      },
+      "id": "PrepareContext",
+      "name": "Prepare Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.preferences.whatsapp.enabled === true}}"
+            }
+          ]
+        }
+      },
+      "id": "IfWA",
+      "name": "WA Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 160]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.preferences.whatsapp.gateway_url}}/send",
+        "options": {
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer {{$env.WA_GATEWAY_TOKEN}}"
+              }
+            ]
+          }
+        },
+        "jsonParameters": true,
+        "body": "={{ { to: $json.preferences.whatsapp.jid, type: 'text', text: { body: 'Здравствуйте, ' + $json.customer.name + '. Депозит по визиту ' + $json.booking.starts_at + ' не поступил вовремя, бронь отменена.' }, meta: { event: 'payment.expired' } } }}"
+      },
+      "id": "SendWA",
+      "name": "Send WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [860, 60]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.preferences.email.enabled !== false}}"
+            }
+          ]
+        }
+      },
+      "id": "IfEmail",
+      "name": "Email Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 440]
+    },
+    {
+      "parameters": {
+        "fromEmail": "billing@devata.ru",
+        "toEmail": "={{$json.customer.email}}",
+        "subject": "DEVATA: бронь отменена",
+        "text": "=Здравствуйте, {{$json.customer.name}}. Мы не получили депозит, поэтому бронь на {{$json.booking.starts_at}} отменена.",
+        "html": "=<p>Здравствуйте, {{$json.customer.name}}.</p><p>Мы не получили депозит к {{$json.booking.deposit_due_at}}. Слот освобождён. Если вы всё ещё хотите посетить центр, пожалуйста, оформите новую запись.</p>"
+      },
+      "id": "SendEmail",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [860, 500],
+      "credentials": {
+        "smtp": "SMTP_DEVATA"
+      }
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "json": [
+            {
+              "name": "log",
+              "value": "={{ { event: 'payment.expired', person_id: $json.customer.person_id, booking_id: $json.booking.id, meta: { source: 'n8n.deposit-expired' } } }}"
+            }
+          ]
+        }
+      },
+      "id": "PrepareLog",
+      "name": "Prepare Log",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [1060, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.meta.api_base}}/internal/notification-logs",
+        "jsonParameters": true,
+        "body": "={{$json.log}}",
+        "options": {
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer {{$env.SUPABASE_SERVICE_TOKEN}}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "StoreLog",
+      "name": "Store Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1260, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Signature": {
+      "main": [
+        [
+          {
+            "node": "Prepare Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Context": {
+      "main": [
+        [
+          {
+            "node": "WA Enabled?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Enabled?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Prepare Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WA Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email Enabled?",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Prepare Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Log",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Send Email": {
+      "main": [
+        [
+          {
+            "node": "Prepare Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Log": {
+      "main": [
+        [
+          {
+            "node": "Store Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "devata-deposit-expired"
+}
