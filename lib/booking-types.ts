@@ -109,7 +109,7 @@ export type BookingRequest = {
   referral?: BookingReferralContext
 }
 
-export type BookingStatus = 'reserved' | 'confirmed' | 'simulated'
+export type BookingStatus = 'reserved' | 'expired' | 'confirmed' | 'simulated'
 
 export type BookingPaymentSummary = {
   policy: PaymentPolicy

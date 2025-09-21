@@ -18,9 +18,77 @@ const DEFAULT_WINDOW_DAYS = 21
 const DEFAULT_LIMIT = 90
 const MAX_LIMIT = 180
 const MOSCOW_TIME_OFFSET_MINUTES = 180
+const DEFAULT_RESERVATION_HOLD_MINUTES = 15
 
-const slotReservations = new Map<string, number>()
+type ReservationHold = {
+  expiresAt?: number
+}
+
+type ReservationState = {
+  confirmed: number
+  holds: ReservationHold[]
+}
+
+const slotReservations = new Map<string, ReservationState>()
 let seededReservation = false
+
+type DemoBookingRecord = BookingResponse & {
+  centerId: string
+  serviceId: string
+  specialistId: string
+  slotId: string
+  client: BookingRequest['client']
+  createdAt: string
+}
+
+type DemoBookingErrorCode = 'SLOT_NOT_FOUND' | 'SLOT_MISMATCH' | 'SLOT_UNAVAILABLE'
+
+const demoBookings: DemoBookingRecord[] = []
+
+function getReservationState(slotId: string): ReservationState {
+  let state = slotReservations.get(slotId)
+  if (!state) {
+    state = { confirmed: 0, holds: [] }
+    slotReservations.set(slotId, state)
+  }
+  return state
+}
+
+function pruneExpiredReservations(now: number = Date.now()) {
+  for (const [slotId, state] of slotReservations.entries()) {
+    if (state.holds.length) {
+      state.holds = state.holds.filter((hold) => hold.expiresAt == null || hold.expiresAt > now)
+    }
+    if (state.confirmed <= 0 && state.holds.length === 0) {
+      slotReservations.delete(slotId)
+    }
+  }
+
+  for (const booking of demoBookings) {
+    if (booking.status !== 'reserved') continue
+    const dueAt = booking.payment?.depositDueAt
+    if (!dueAt) continue
+    const dueAtMs = Date.parse(dueAt)
+    if (Number.isNaN(dueAtMs)) continue
+    if (dueAtMs <= now) {
+      booking.status = 'expired'
+    }
+  }
+}
+
+function resolveReservationExpiry(
+  payment: BookingPaymentSummary | undefined,
+  now: number
+): number | undefined {
+  if (!payment) return undefined
+  const holdMinutes =
+    payment.depositHoldMinutes ??
+    (payment.policy === 'full_prepaid' || payment.policy === 'deposit_required'
+      ? DEFAULT_RESERVATION_HOLD_MINUTES
+      : undefined)
+  if (holdMinutes == null) return undefined
+  return now + holdMinutes * MS_PER_MINUTE
+}
 
 function computeDepositDueAt(
   depositDueMinutes: number | undefined,
@@ -40,7 +108,11 @@ export function calculatePaymentSummary(
   const policy = service.paymentPolicy ?? 'none'
   const price = service.price
   const depositPercent = service.depositPercent ?? 0
-  const depositHoldMinutes = service.depositDueMinutes ?? undefined
+  const depositHoldMinutes =
+    service.depositDueMinutes ??
+    (policy === 'full_prepaid' || policy === 'deposit_required'
+      ? DEFAULT_RESERVATION_HOLD_MINUTES
+      : undefined)
   const depositDueAt = computeDepositDueAt(depositHoldMinutes, now)
 
   let dueNowAmount: number | undefined
@@ -466,15 +538,22 @@ function ensureSeedReservation(slots: Slot[]) {
   if (seededReservation || !slots.length) return
   const prioritized = slots.find((slot) => slot.serviceId === 'restoration-basic') ?? slots[0]
   if (prioritized) {
-    slotReservations.set(prioritized.id, prioritized.capacity)
+    const state = getReservationState(prioritized.id)
+    state.confirmed = Math.max(state.confirmed, prioritized.capacity)
+    state.holds = []
     seededReservation = true
   }
 }
 
 function applyReservations(slots: Slot[]): Slot[] {
+  pruneExpiredReservations()
   ensureSeedReservation(slots)
   return slots.map((slot) => {
-    const reserved = slotReservations.get(slot.id) ?? 0
+    const state = slotReservations.get(slot.id)
+    if (!state) {
+      return slot
+    }
+    const reserved = Math.min(slot.capacity, state.confirmed + state.holds.length)
     return {
       ...slot,
       remaining: Math.max(0, slot.capacity - reserved)
@@ -596,16 +675,7 @@ export function getDemoSlots(options: SlotGenerationOptions = {}): Slot[] {
   return applyReservations(slots)
 }
 
-export type DemoBookingRecord = BookingResponse & {
-  centerId: string
-  serviceId: string
-  specialistId: string
-  slotId: string
-  client: BookingRequest['client']
-  createdAt: string
-}
-
-export type DemoBookingErrorCode = 'SLOT_NOT_FOUND' | 'SLOT_MISMATCH' | 'SLOT_UNAVAILABLE'
+export type { DemoBookingRecord, DemoBookingErrorCode }
 
 export class DemoBookingError extends Error {
   code: DemoBookingErrorCode
@@ -618,17 +688,18 @@ export class DemoBookingError extends Error {
   }
 }
 
-const demoBookings: DemoBookingRecord[] = []
-
 function nextDemoBookingId() {
   return `demo-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
 }
 
 export function listDemoBookings(): DemoBookingRecord[] {
+  pruneExpiredReservations()
   return [...demoBookings]
 }
 
 export function createDemoBooking(request: BookingRequest): DemoBookingRecord {
+  pruneExpiredReservations()
+
   const slots = getDemoSlots({
     centerId: request.centerId,
     serviceId: request.serviceId,
@@ -651,6 +722,7 @@ export function createDemoBooking(request: BookingRequest): DemoBookingRecord {
 
   const service = demoServices.find((item) => item.id === request.serviceId)
   const payment = calculatePaymentSummary(service)
+  const now = Date.now()
   const requiresUpfrontConfirmation =
     payment != null &&
     (payment.policy === 'full_prepaid' ||
@@ -685,8 +757,13 @@ export function createDemoBooking(request: BookingRequest): DemoBookingRecord {
   }
 
   demoBookings.push(booking)
-  const reserved = slotReservations.get(slot.id) ?? 0
-  slotReservations.set(slot.id, reserved + 1)
+
+  const state = getReservationState(slot.id)
+  if (requiresUpfrontConfirmation) {
+    state.holds.push({ expiresAt: resolveReservationExpiry(payment, now) })
+  } else {
+    state.confirmed = Math.min(slot.capacity, state.confirmed + 1)
+  }
 
   return booking
 }
