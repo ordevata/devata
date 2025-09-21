@@ -1,90 +1,12 @@
+import { BookingStatusBadge } from '@/components/BookingStatusBadge'
 import {
   getCenters,
   getServices,
   getSpecialists,
   listBookings,
-  type BookingRecord,
-  type BookingStatus
+  type BookingRecord
 } from '@/lib/booking'
-
-const STATUS_META: Record<BookingStatus, { label: string; className: string }> = {
-  reserved: {
-    label: 'Ожидает депозита',
-    className: 'bg-amber-100 text-amber-800 border border-amber-200'
-  },
-  confirmed: {
-    label: 'Подтверждено',
-    className: 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-  },
-  checked_in: {
-    label: 'Клиент на месте',
-    className: 'bg-sky-100 text-sky-800 border border-sky-200'
-  },
-  completed: {
-    label: 'Завершено',
-    className: 'bg-emerald-200 text-emerald-900 border border-emerald-300'
-  },
-  expired: {
-    label: 'Истекло',
-    className: 'bg-rose-100 text-rose-800 border border-rose-200'
-  },
-  canceled: {
-    label: 'Отменено',
-    className: 'bg-slate-200 text-slate-700 border border-slate-300'
-  },
-  no_show: {
-    label: 'Неявка',
-    className: 'bg-rose-200 text-rose-900 border border-rose-300'
-  },
-  simulated: {
-    label: 'Черновик',
-    className: 'bg-slate-200 text-slate-700 border border-slate-300'
-  }
-}
-
-const dateTimeFormatter = new Intl.DateTimeFormat('ru-RU', {
-  dateStyle: 'medium',
-  timeStyle: 'short'
-})
-const dateFormatter = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium' })
-const timeFormatter = new Intl.DateTimeFormat('ru-RU', { timeStyle: 'short' })
-const currencyFormatters = new Map<string, Intl.NumberFormat>()
-
-function parseDate(value?: string): Date | null {
-  if (!value) return null
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
-}
-
-function formatCurrency(amount?: number, currency = 'RUB'): string | null {
-  if (amount == null) return null
-  let formatter = currencyFormatters.get(currency)
-  if (!formatter) {
-    formatter = new Intl.NumberFormat('ru-RU', {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 0
-    })
-    currencyFormatters.set(currency, formatter)
-  }
-  return formatter.format(amount)
-}
-
-function formatSlotRange(startIso: string, endIso: string): string {
-  const start = parseDate(startIso)
-  const end = parseDate(endIso)
-  if (!start || !end) return 'Дата не указана'
-  const sameDay = start.toDateString() === end.toDateString()
-  if (sameDay) {
-    return `${dateFormatter.format(start)}, ${timeFormatter.format(start)}–${timeFormatter.format(end)}`
-  }
-  return `${dateTimeFormatter.format(start)} — ${dateTimeFormatter.format(end)}`
-}
-
-function formatDateTime(value?: string): string | null {
-  const parsed = parseDate(value)
-  return parsed ? dateTimeFormatter.format(parsed) : null
-}
+import { formatCurrency, formatDateTime, formatSlotRange } from '@/lib/formatters'
 
 function renderPaymentDetails(booking: BookingRecord) {
   const payment = booking.payment
@@ -119,18 +41,6 @@ function renderPaymentDetails(booking: BookingRecord) {
       ) : null}
       {payment.note ? <p className="text-xs text-slate-500">{payment.note}</p> : null}
     </div>
-  )
-}
-
-function renderStatus(status: BookingStatus) {
-  const meta = STATUS_META[status] ?? {
-    label: status,
-    className: 'bg-slate-100 text-slate-700 border border-slate-200'
-  }
-  return (
-    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${meta.className}`}>
-      {meta.label}
-    </span>
   )
 }
 
@@ -190,7 +100,7 @@ export default async function Page() {
               {center?.name ?? 'Центр не указан'} • {specialist?.fullName ?? 'Специалист не назначен'}
             </p>
           </div>
-          {renderStatus(booking.status)}
+          <BookingStatusBadge status={booking.status} />
         </div>
         <p className="mt-3 text-sm font-medium text-slate-700">{formatSlotRange(booking.slotStart, booking.slotEnd)}</p>
         <div className="mt-3 space-y-2">
