@@ -5,7 +5,16 @@ import type { BookingListFilters, BookingRequest, BookingStatus } from '@/lib/bo
 
 export const dynamic = 'force-dynamic'
 
-const ALLOWED_STATUSES: BookingStatus[] = ['reserved', 'expired', 'confirmed', 'simulated']
+const ALLOWED_STATUSES: BookingStatus[] = [
+  'reserved',
+  'expired',
+  'confirmed',
+  'checked_in',
+  'completed',
+  'no_show',
+  'canceled',
+  'simulated'
+]
 
 function validatePayload(payload: BookingRequest) {
   if (!payload.centerId) throw new Error('centerId обязателен')
@@ -81,7 +90,9 @@ export async function POST(request: NextRequest) {
         slotStart: booking.slotStart,
         slotEnd: booking.slotEnd,
         payment: booking.payment,
-        funds: booking.funds
+        funds: booking.funds,
+        updatedAt: booking.updatedAt,
+        statusHistory: booking.statusHistory
       },
       { status: 201 }
     )

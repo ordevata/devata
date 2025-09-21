@@ -16,9 +16,25 @@ const STATUS_META: Record<BookingStatus, { label: string; className: string }> =
     label: 'Подтверждено',
     className: 'bg-emerald-100 text-emerald-800 border border-emerald-200'
   },
+  checked_in: {
+    label: 'Клиент на месте',
+    className: 'bg-sky-100 text-sky-800 border border-sky-200'
+  },
+  completed: {
+    label: 'Завершено',
+    className: 'bg-emerald-200 text-emerald-900 border border-emerald-300'
+  },
   expired: {
     label: 'Истекло',
     className: 'bg-rose-100 text-rose-800 border border-rose-200'
+  },
+  canceled: {
+    label: 'Отменено',
+    className: 'bg-slate-200 text-slate-700 border border-slate-300'
+  },
+  no_show: {
+    label: 'Неявка',
+    className: 'bg-rose-200 text-rose-900 border border-rose-300'
   },
   simulated: {
     label: 'Черновик',
@@ -136,14 +152,18 @@ export default async function Page() {
     .sort((a, b) => Date.parse(a.payment?.depositDueAt ?? a.slotStart) - Date.parse(b.payment?.depositDueAt ?? b.slotStart))
   const upcoming = bookings
     .filter((booking) =>
-      (booking.status === 'confirmed' || booking.status === 'simulated') && Date.parse(booking.slotEnd) >= now
+      ['confirmed', 'checked_in', 'simulated'].includes(booking.status) && Date.parse(booking.slotEnd) >= now
     )
     .sort((a, b) => Date.parse(a.slotStart) - Date.parse(b.slotStart))
   const expired = bookings
     .filter((booking) => booking.status === 'expired')
     .sort((a, b) => Date.parse(a.slotStart) - Date.parse(b.slotStart))
   const history = bookings
-    .filter((booking) => Date.parse(booking.slotEnd) < now)
+    .filter((booking) => {
+      if (booking.status === 'expired') return false
+      if (['completed', 'canceled', 'no_show'].includes(booking.status)) return true
+      return Date.parse(booking.slotEnd) < now
+    })
     .sort((a, b) => Date.parse(b.slotStart) - Date.parse(a.slotStart))
     .slice(0, 5)
 
@@ -152,6 +172,14 @@ export default async function Page() {
     const service = serviceMap.get(booking.serviceId)
     const specialist = specialistMap.get(booking.specialistId)
     const createdAt = formatDateTime(booking.createdAt)
+    const updatedAt =
+      booking.updatedAt && booking.updatedAt !== booking.createdAt
+        ? formatDateTime(booking.updatedAt)
+        : null
+    const latestNote = booking.statusHistory
+      ?.slice()
+      .reverse()
+      .find((entry) => entry.note && entry.status === booking.status)?.note
 
     return (
       <li key={booking.bookingId} className="rounded-xl border p-4 shadow-sm">
@@ -169,6 +197,12 @@ export default async function Page() {
           {renderPaymentDetails(booking)}
           {createdAt ? (
             <p className="text-xs text-slate-500">Бронь оформлена {createdAt}</p>
+          ) : null}
+          {updatedAt ? (
+            <p className="text-xs text-slate-500">Статус обновлён {updatedAt}</p>
+          ) : null}
+          {latestNote ? (
+            <p className="text-xs text-slate-600">Комментарий: {latestNote}</p>
           ) : null}
         </div>
       </li>

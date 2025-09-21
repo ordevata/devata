@@ -254,7 +254,7 @@ create type schedule_exception_kind as enum ('closed', 'extended');
 
 - `center_id`, `service_id`, `specialist_id` — фильтрация по местоположению и специалисту.
 - `phone`, `email` — поиск по контактам клиента (регистронезависимый, поддерживает частичное совпадение).
-- `status` — может повторяться несколько раз (поддерживаем `reserved`, `confirmed`, `expired`, `simulated`).
+- `status` — может повторяться несколько раз (поддерживаем `reserved`, `confirmed`, `checked_in`, `completed`, `canceled`, `no_show`, `expired`, `simulated`).
 
 Ответ `200 OK`:
 
@@ -283,7 +283,20 @@ create type schedule_exception_kind as enum ('closed', 'extended');
         "dueNowAmount": 1950,
         "dueLaterAmount": 4550,
         "depositDueAt": "2025-08-20T12:35:00+03:00"
-      }
+      },
+      "updatedAt": "2025-08-20T12:20:00+03:00",
+      "statusHistory": [
+        {
+          "status": "reserved",
+          "changedAt": "2025-08-18T12:15:00+03:00"
+        },
+        {
+          "status": "confirmed",
+          "changedAt": "2025-08-18T14:30:00+03:00",
+          "previousStatus": "reserved",
+          "note": "Оператор подтвердил бронь"
+        }
+      ]
     }
   ],
   "total": 1,
@@ -300,6 +313,7 @@ create type schedule_exception_kind as enum ('closed', 'extended');
 | Метод | Путь | Описание |
 |-------|------|----------|
 | GET | /internal/bookings | Фильтры по датам/статусу/специалисту |
+| GET | /internal/bookings/{id} | Детали конкретной брони |
 | PATCH | /internal/bookings/{id} | Изменение статуса, перенос |
 | POST | /internal/bookings/{id}/check-in | Отметить посещение |
 | POST | /internal/bookings/{id}/no-show | Отметить неявку |
@@ -307,6 +321,24 @@ create type schedule_exception_kind as enum ('closed', 'extended');
 | POST | /internal/specialists/{id}/schedule | Обновить правила |
 | POST | /internal/specialists/{id}/exceptions | Добавить исключение |
 | DELETE | /internal/schedule-exceptions/{id} | Удалить исключение |
+
+#### 4.2.1 PATCH /internal/bookings/{id}
+
+Позволяет вручную изменить статус брони и оставить служебный комментарий. Используется сотрудниками центра для фиксации оплат,
+отмен, неявок и завершения визита.
+
+Пример запроса:
+
+```json
+{
+  "status": "confirmed",
+  "note": "Депозит внесён по ссылке"
+}
+```
+
+Поддерживаются статусы `reserved`, `confirmed`, `checked_in`, `completed`, `canceled`, `no_show`, `expired`. Переходы валидируются — например, нельзя перевести `completed` обратно в `confirmed`.
+
+Ответ `200 OK` возвращает актуальную запись с `statusHistory`, где фиксируются каждая смена статуса, отметки о неявках и комментарии операторов.
 
 ## 5. Генерация слотов
 ### 5.1 Алгоритм

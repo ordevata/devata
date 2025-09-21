@@ -5,6 +5,7 @@ import type {
   BookingRecord,
   BookingRequest,
   BookingResponse,
+  BookingStatus,
   Center,
   Service,
   Slot,
@@ -16,7 +17,9 @@ import {
   demoServices,
   demoSpecialists,
   getDemoSlots,
-  queryDemoBookings
+  getDemoBookingById,
+  queryDemoBookings,
+  updateDemoBookingStatus
 } from './demo-data'
 
 export type {
@@ -28,6 +31,7 @@ export type {
   BookingResponse,
   BookingPaymentSummary,
   BookingStatus,
+  BookingStatusChange,
   Center,
   Service,
   Slot,
@@ -146,4 +150,47 @@ export async function listBookings(
       generatedAt: new Date().toISOString()
     }
   })
+}
+
+export type BookingStatusUpdatePayload = {
+  status: BookingStatus
+  note?: string
+}
+
+export async function getBookingById(bookingId: string): Promise<BookingRecord | undefined> {
+  try {
+    return (await api(`/internal/bookings/${bookingId}`)) as BookingRecord
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      const booking = getDemoBookingById(bookingId)
+      if (booking) {
+        console.warn(`[booking] Использую демо-данные для /internal/bookings/${bookingId}:`, error)
+        return booking
+      }
+      return undefined
+    }
+    if (error instanceof Error && error.message.startsWith('404')) {
+      return undefined
+    }
+    throw error
+  }
+}
+
+export async function updateBookingStatus(
+  bookingId: string,
+  payload: BookingStatusUpdatePayload
+): Promise<BookingRecord> {
+  try {
+    const response = await api(`/internal/bookings/${bookingId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    })
+    return response as BookingRecord
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`[booking] API недоступно, обновляю статус в демо-данных ${bookingId}:`, error)
+      return updateDemoBookingStatus(bookingId, payload.status, { note: payload.note })
+    }
+    throw error instanceof Error ? error : new Error('Не удалось обновить статус брони')
+  }
 }

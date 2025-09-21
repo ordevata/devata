@@ -109,7 +109,22 @@ export type BookingRequest = {
   referral?: BookingReferralContext
 }
 
-export type BookingStatus = 'reserved' | 'expired' | 'confirmed' | 'simulated'
+export type BookingStatus =
+  | 'reserved'
+  | 'expired'
+  | 'confirmed'
+  | 'checked_in'
+  | 'completed'
+  | 'no_show'
+  | 'canceled'
+  | 'simulated'
+
+export type BookingStatusChange = {
+  status: BookingStatus
+  changedAt: string
+  previousStatus?: BookingStatus
+  note?: string
+}
 
 export type BookingPaymentSummary = {
   policy: PaymentPolicy
@@ -182,6 +197,8 @@ export type BookingResponse = {
   slotEnd: string
   payment?: BookingPaymentSummary
   funds?: BookingFundsLedger
+  updatedAt?: string
+  statusHistory?: BookingStatusChange[]
 }
 
 export type BookingRecord = BookingResponse & {

@@ -5,6 +5,7 @@ import type {
   BookingRecord,
   BookingRequest,
   BookingStatus,
+  BookingStatusChange,
   Center,
   Partner,
   PartnerPayoutSnapshot,
@@ -39,9 +40,106 @@ type ReservationState = {
 const slotReservations = new Map<string, ReservationState>()
 let seededReservation = false
 
+type StoredBooking = BookingRecord & {
+  statusHistory: BookingStatusChange[]
+  updatedAt: string
+}
+
 type DemoBookingErrorCode = 'SLOT_NOT_FOUND' | 'SLOT_MISMATCH' | 'SLOT_UNAVAILABLE'
-const demoBookings: BookingRecord[] = []
+const demoBookings: StoredBooking[] = []
 let seededDemoBookingsData = false
+
+function cloneBooking(booking: StoredBooking): BookingRecord {
+  return JSON.parse(JSON.stringify(booking)) as BookingRecord
+}
+
+function getReservationEffect(status: BookingStatus): 'none' | 'hold' | 'confirmed' {
+  switch (status) {
+    case 'reserved':
+      return 'hold'
+    case 'confirmed':
+    case 'checked_in':
+      return 'confirmed'
+    default:
+      return 'none'
+  }
+}
+
+function applyReservationTransition(
+  booking: StoredBooking,
+  previousStatus: BookingStatus,
+  nextStatus: BookingStatus
+) {
+  if (previousStatus === nextStatus) return
+
+  const state = getReservationState(booking.slotId)
+  const previousEffect = getReservationEffect(previousStatus)
+  const nextEffect = getReservationEffect(nextStatus)
+
+  if (previousEffect === 'hold') {
+    state.holds = []
+  } else if (previousEffect === 'confirmed') {
+    state.confirmed = Math.max(0, state.confirmed - 1)
+  }
+
+  if (nextEffect === 'hold') {
+    state.holds.push({ expiresAt: resolveReservationExpiry(booking.payment, Date.now()) })
+  } else if (nextEffect === 'confirmed') {
+    state.confirmed = Math.max(0, state.confirmed) + 1
+  }
+
+  if (state.confirmed <= 0 && state.holds.length === 0) {
+    slotReservations.delete(booking.slotId)
+  }
+}
+
+function recordStatusChange(
+  booking: StoredBooking,
+  status: BookingStatus,
+  options: { changedAt?: string; note?: string; previousStatus?: BookingStatus } = {}
+) {
+  const changedAt = options.changedAt ?? new Date().toISOString()
+  const entry: BookingStatusChange = {
+    status,
+    changedAt
+  }
+  if (options.previousStatus) {
+    entry.previousStatus = options.previousStatus
+  }
+  if (options.note) {
+    entry.note = options.note
+  }
+
+  booking.status = status
+  booking.updatedAt = changedAt
+  if (!booking.statusHistory) {
+    booking.statusHistory = []
+  }
+  booking.statusHistory.push(entry)
+}
+
+function createStoredBooking(
+  booking: Omit<StoredBooking, 'statusHistory' | 'updatedAt'>
+): StoredBooking {
+  const stored: StoredBooking = {
+    ...booking,
+    updatedAt: booking.createdAt,
+    statusHistory: []
+  }
+  recordStatusChange(stored, booking.status, { changedAt: booking.createdAt })
+  return stored
+}
+
+const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
+  reserved: ['confirmed', 'canceled', 'expired'],
+  confirmed: ['checked_in', 'canceled', 'no_show', 'completed'],
+  checked_in: ['completed'],
+  completed: [],
+  no_show: [],
+  canceled: [],
+  expired: [],
+  simulated: ['confirmed', 'canceled']
+}
 
 function normalizePhone(value?: string): string {
   if (!value) return ''
@@ -102,7 +200,12 @@ function pruneExpiredReservations(now: number = Date.now()) {
     const dueAtMs = Date.parse(dueAt)
     if (Number.isNaN(dueAtMs)) continue
     if (dueAtMs <= now) {
-      booking.status = 'expired'
+      applyReservationTransition(booking, 'reserved', 'expired')
+      recordStatusChange(booking, 'expired', {
+        previousStatus: 'reserved',
+        changedAt: new Date(dueAtMs).toISOString(),
+        note: 'Дедлайн по депозиту истёк'
+      })
     }
   }
 }
@@ -339,9 +442,16 @@ function resolveReferralPath(request: BookingRequest): string[] {
   return []
 }
 
+type SeedStatusTransition = {
+  status: BookingStatus
+  offsetMinutes?: number
+  at?: 'slotStart' | 'slotEnd'
+  note?: string
+}
+
 type SeedBookingConfig = {
   bookingId: string
-  status: BookingStatus
+  initialStatus: BookingStatus
   centerId: string
   serviceId: string
   specialistId: string
@@ -350,6 +460,7 @@ type SeedBookingConfig = {
   client: BookingClient
   referralRoot?: string
   referralPath?: string[]
+  transitions?: SeedStatusTransition[]
 }
 
 function ensureDemoBookingsSeeded() {
@@ -363,7 +474,7 @@ function ensureDemoBookingsSeeded() {
   const seedConfigs: SeedBookingConfig[] = [
     {
       bookingId: 'demo-booking-anna',
-      status: 'confirmed',
+      initialStatus: 'reserved',
       centerId: 'center-spb',
       serviceId: 'restoration-basic',
       specialistId: 'specialist-maria',
@@ -375,11 +486,23 @@ function ensureDemoBookingsSeeded() {
         email: 'anna@example.com',
         preferredChannel: 'telegram'
       },
-      referralRoot: 'partner-sergey'
+      referralRoot: 'partner-sergey',
+      transitions: [
+        {
+          status: 'confirmed',
+          offsetMinutes: 120,
+          note: 'Оператор подтвердил бронирование после консультации'
+        },
+        {
+          status: 'completed',
+          at: 'slotEnd',
+          note: 'Визит состоялся и закрыт'
+        }
+      ]
     },
     {
       bookingId: 'demo-booking-deposit',
-      status: 'reserved',
+      initialStatus: 'reserved',
       centerId: 'center-spb',
       serviceId: 'restoration-advanced',
       specialistId: 'specialist-maria',
@@ -395,7 +518,7 @@ function ensureDemoBookingsSeeded() {
     },
     {
       bookingId: 'demo-booking-diagnostics',
-      status: 'confirmed',
+      initialStatus: 'confirmed',
       centerId: 'center-msk',
       serviceId: 'diagnostics',
       specialistId: 'specialist-ilya',
@@ -407,7 +530,14 @@ function ensureDemoBookingsSeeded() {
         email: 'maria@example.com',
         preferredChannel: 'email'
       },
-      referralRoot: 'partner-vadim'
+      referralRoot: 'partner-vadim',
+      transitions: [
+        {
+          status: 'checked_in',
+          at: 'slotStart',
+          note: 'Клиент отметился на ресепшене'
+        }
+      ]
     }
   ]
 
@@ -424,7 +554,7 @@ function ensureDemoBookingsSeeded() {
     const paymentNow = new Date(slotStart.getTime() - 2 * MS_PER_DAY)
     const payment = calculatePaymentSummary(service, { now: paymentNow })
 
-    if (payment && config.status === 'reserved') {
+    if (payment && config.initialStatus === 'reserved') {
       const dueDate = new Date(slotStart.getTime() - 12 * MS_PER_HOUR)
       payment.depositDueAt = dueDate.toISOString()
       payment.depositHoldMinutes = Math.max(payment.depositHoldMinutes ?? 0, Math.ceil(12 * 60))
@@ -442,9 +572,9 @@ function ensureDemoBookingsSeeded() {
         })
       : undefined
 
-    const booking: BookingRecord = {
+    const stored = createStoredBooking({
       bookingId: config.bookingId,
-      status: config.status,
+      status: config.initialStatus,
       slotStart: slotStart.toISOString(),
       slotEnd,
       centerId: config.centerId,
@@ -455,9 +585,43 @@ function ensureDemoBookingsSeeded() {
       createdAt,
       payment,
       funds
-    }
+    })
 
-    demoBookings.push(booking)
+    demoBookings.push(stored)
+    applyReservationTransition(stored, 'simulated', stored.status)
+
+    if (config.transitions?.length) {
+      const createdAtDate = new Date(createdAt)
+      let previousStatus = stored.status
+      for (const transition of config.transitions) {
+        let changedAt: string
+        if (transition.at === 'slotStart') {
+          changedAt = slotStart.toISOString()
+        } else if (transition.at === 'slotEnd') {
+          changedAt = slotEnd
+        } else if (transition.offsetMinutes != null) {
+          changedAt = new Date(
+            createdAtDate.getTime() + transition.offsetMinutes * MS_PER_MINUTE
+          ).toISOString()
+        } else {
+          changedAt = new Date(createdAtDate.getTime() + 5 * MS_PER_MINUTE).toISOString()
+        }
+
+        applyReservationTransition(stored, previousStatus, transition.status)
+        recordStatusChange(stored, transition.status, {
+          previousStatus,
+          changedAt,
+          note: transition.note
+        })
+
+        if (stored.payment && previousStatus === 'reserved' && transition.status === 'confirmed') {
+          stored.payment.depositDueAt = undefined
+          stored.payment.depositHoldMinutes = undefined
+        }
+
+        previousStatus = transition.status
+      }
+    }
   })
 
   seededDemoBookingsData = true
@@ -836,6 +1000,28 @@ export class DemoBookingError extends Error {
   }
 }
 
+export class BookingNotFoundError extends Error {
+  bookingId: string
+
+  constructor(bookingId: string) {
+    super(`Бронь ${bookingId} не найдена`)
+    this.bookingId = bookingId
+    this.name = 'BookingNotFoundError'
+  }
+}
+
+export class BookingStatusTransitionError extends Error {
+  from: BookingStatus
+  to: BookingStatus
+
+  constructor(from: BookingStatus, to: BookingStatus) {
+    super(`Статус ${from} нельзя перевести в ${to}`)
+    this.from = from
+    this.to = to
+    this.name = 'BookingStatusTransitionError'
+  }
+}
+
 function nextDemoBookingId() {
   return `demo-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
 }
@@ -845,10 +1031,7 @@ export function queryDemoBookings(filters: BookingListFilters = {}): BookingReco
   pruneExpiredReservations()
   const filtered = demoBookings.filter((booking) => matchesBookingFilters(booking, filters))
   filtered.sort((a, b) => (a.slotStart < b.slotStart ? -1 : a.slotStart > b.slotStart ? 1 : 0))
-  return filtered.map((booking) => ({
-    ...booking,
-    client: { ...booking.client }
-  }))
+  return filtered.map((booking) => cloneBooking(booking))
 }
 
 export function listDemoBookings(): BookingRecord[] {
@@ -913,7 +1096,7 @@ export function createDemoBooking(request: BookingRequest): BookingRecord {
       })
     : undefined
 
-  const booking: BookingRecord = {
+  const stored = createStoredBooking({
     bookingId: nextDemoBookingId(),
     status: requiresUpfrontConfirmation ? 'reserved' : 'confirmed',
     slotStart: slot.start,
@@ -926,18 +1109,66 @@ export function createDemoBooking(request: BookingRequest): BookingRecord {
     createdAt: new Date().toISOString(),
     payment,
     funds
+  })
+
+  demoBookings.push(stored)
+  applyReservationTransition(stored, 'simulated', stored.status)
+
+  return cloneBooking(stored)
+}
+
+export function getDemoBookingById(bookingId: string): BookingRecord | undefined {
+  ensureDemoBookingsSeeded()
+  pruneExpiredReservations()
+  const booking = demoBookings.find((item) => item.bookingId === bookingId)
+  return booking ? cloneBooking(booking) : undefined
+}
+
+export function updateDemoBookingStatus(
+  bookingId: string,
+  status: BookingStatus,
+  options: { note?: string } = {}
+): BookingRecord {
+  ensureDemoBookingsSeeded()
+  pruneExpiredReservations()
+
+  const booking = demoBookings.find((item) => item.bookingId === bookingId)
+  if (!booking) {
+    throw new BookingNotFoundError(bookingId)
   }
 
-  demoBookings.push(booking)
+  const previousStatus = booking.status
+  const changedAt = new Date().toISOString()
 
-  const state = getReservationState(slot.id)
-  if (requiresUpfrontConfirmation) {
-    state.holds.push({ expiresAt: resolveReservationExpiry(payment, now) })
-  } else {
-    state.confirmed = Math.min(slot.capacity, state.confirmed + 1)
+  if (previousStatus === status) {
+    if (options.note) {
+      recordStatusChange(booking, status, {
+        previousStatus,
+        changedAt,
+        note: options.note
+      })
+    }
+    return cloneBooking(booking)
   }
 
-  return booking
+  const allowed = ALLOWED_STATUS_TRANSITIONS[previousStatus] ?? []
+  if (!allowed.includes(status)) {
+    throw new BookingStatusTransitionError(previousStatus, status)
+  }
+
+  applyReservationTransition(booking, previousStatus, status)
+  recordStatusChange(booking, status, {
+    previousStatus,
+    changedAt,
+    note: options.note
+  })
+
+  if (booking.payment && previousStatus === 'reserved' && status === 'confirmed') {
+    booking.payment.depositDueAt = undefined
+    booking.payment.depositHoldMinutes = undefined
+  }
+
+  return cloneBooking(booking)
 }
 
 export type { SlotGenerationOptions }
