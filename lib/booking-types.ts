@@ -109,6 +109,11 @@ export type BookingRequest = {
   referral?: BookingReferralContext
 }
 
+export type BookingFollowUpRequest = {
+  slotId: string
+  note?: string
+}
+
 export type BookingStatus =
   | 'reserved'
   | 'expired'

@@ -340,6 +340,60 @@ create type schedule_exception_kind as enum ('closed', 'extended');
 
 Ответ `200 OK` возвращает актуальную запись с `statusHistory`, где фиксируются каждая смена статуса, отметки о неявках и комментарии операторов.
 
+#### 4.2.2 POST /internal/bookings/{id}/follow-up
+
+Назначает следующую встречу на основе уже оформленной брони. Сохраняет клиента, услугу и специалиста, но позволяет выбрать новый свободный слот и оставить комментарий для команды.
+
+**Запрос**
+
+```json
+{
+  "slotId": "slot-spb-schedule-002-2025-09-05T11:00:00.000Z",
+  "note": "Повторная диагностика через неделю"
+}
+```
+
+- `slotId` — обязательный идентификатор свободного слота для того же специалиста и услуги.
+- `note` — необязательный служебный комментарий (до 500 символов). Добавляется в `statusHistory` новой и исходной броней.
+
+**Ответ `201 Created`**
+
+```json
+{
+  "bookingId": "demo-20250827-AB12CD",
+  "status": "reserved",
+  "slotStart": "2025-09-05T11:00:00.000Z",
+  "slotEnd": "2025-09-05T12:00:00.000Z",
+  "centerId": "spb-center-1",
+  "serviceId": "service-rehab-60",
+  "specialistId": "specialist-kuznetsova",
+  "slotId": "slot-spb-schedule-002-2025-09-05T11:00:00.000Z",
+  "client": {
+    "fullName": "Анна Иванова",
+    "phone": "+7 911 000-00-00",
+    "email": "anna@example.com"
+  },
+  "createdAt": "2025-08-27T14:05:00.000Z",
+  "payment": {
+    "policy": "deposit_required",
+    "totalAmount": 9000,
+    "dueNowAmount": 2700,
+    "dueLaterAmount": 6300,
+    "depositHoldMinutes": 20,
+    "depositDueAt": "2025-08-27T14:25:00.000Z"
+  },
+  "statusHistory": [
+    {
+      "status": "reserved",
+      "changedAt": "2025-08-27T14:05:00.000Z",
+      "note": "Follow-up для demo-20250818-XY91FF · Повторная диагностика через неделю"
+    }
+  ]
+}
+```
+
+Исходная бронь получает дополнительную запись в `statusHistory` со служебным комментарием о назначенном follow-up, чтобы специалист видел, что клиент уже записан на следующий визит.
+
 ## 5. Генерация слотов
 ### 5.1 Алгоритм
 1. Получаем все активные `schedules` для специалиста/услуги.

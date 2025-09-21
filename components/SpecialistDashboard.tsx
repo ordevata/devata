@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { FollowUpScheduler } from '@/components/FollowUpScheduler'
 import { BookingStatusBadge, getStatusMeta } from '@/components/BookingStatusBadge'
 import type {
   BookingListResponse,
@@ -12,6 +13,7 @@ import type {
 import { formatCurrency, formatDateTime, formatSlotRange } from '@/lib/formatters'
 
 const UPCOMING_STATUSES: BookingStatus[] = ['reserved', 'confirmed', 'checked_in']
+const FOLLOW_UP_STATUSES: BookingStatus[] = ['confirmed', 'checked_in', 'completed']
 
 type ActionVariant = 'primary' | 'secondary' | 'danger' | 'warning'
 
@@ -93,6 +95,7 @@ export function SpecialistDashboard({
   const [error, setError] = useState<string | null>(null)
   const [flashMessage, setFlashMessage] = useState<string | null>(null)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [followUpBooking, setFollowUpBooking] = useState<BookingRecord | null>(null)
 
   const initialIdRef = useRef(initialSpecialistId ?? '')
   const hasSkippedInitialRef = useRef(false)
@@ -175,7 +178,7 @@ export function SpecialistDashboard({
       .slice(0, 10)
   }, [bookings])
 
-  async function refresh() {
+  async function refresh(options: { silent?: boolean } = {}) {
     if (!selectedSpecialistId) return
     hasSkippedInitialRef.current = true
     setLoading(true)
@@ -191,7 +194,9 @@ export function SpecialistDashboard({
       const data = (await response.json()) as BookingListResponse
       setBookings(data.bookings)
       setGeneratedAt(data.generatedAt)
-      setFlashMessage('Данные обновлены')
+      if (!options.silent) {
+        setFlashMessage('Данные обновлены')
+      }
     } catch (refreshError) {
       setError(
         refreshError instanceof Error ? refreshError.message : 'Не удалось обновить расписание'
@@ -239,8 +244,9 @@ export function SpecialistDashboard({
   }
 
   function renderActions(booking: BookingRecord) {
-    const actions = ACTIONS[booking.status]
-    if (!actions?.length) return null
+    const actions = ACTIONS[booking.status] ?? []
+    const canScheduleFollowUp = FOLLOW_UP_STATUSES.includes(booking.status)
+    if (!actions.length && !canScheduleFollowUp) return null
 
     return (
       <div className="flex flex-wrap gap-2">
@@ -255,6 +261,16 @@ export function SpecialistDashboard({
             {action.label}
           </button>
         ))}
+        {canScheduleFollowUp ? (
+          <button
+            type="button"
+            className={VARIANT_STYLES.secondary}
+            onClick={() => setFollowUpBooking(booking)}
+            disabled={loading}
+          >
+            Назначить следующий визит
+          </button>
+        ) : null}
       </div>
     )
   }
@@ -356,7 +372,7 @@ export function SpecialistDashboard({
             </select>
             <button
               type="button"
-              onClick={refresh}
+              onClick={() => refresh()}
               className="inline-flex items-center rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-wait disabled:opacity-50"
               disabled={loading}
             >
@@ -436,6 +452,20 @@ export function SpecialistDashboard({
           <p className="text-sm text-slate-500">История пуста — начните с предстоящих записей.</p>
         )}
       </section>
+      <FollowUpScheduler
+        booking={followUpBooking}
+        open={followUpBooking != null}
+        onClose={() => setFollowUpBooking(null)}
+        onCreated={async (created) => {
+          setFollowUpBooking(null)
+          await refresh({ silent: true })
+          setFlashMessage(
+            `Follow-up назначен на ${
+              formatSlotRange(created.slotStart, created.slotEnd) ?? created.slotStart
+            }`
+          )
+        }}
+      />
     </div>
   )
 }

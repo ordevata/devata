@@ -1,5 +1,6 @@
 import type {
   BookingClient,
+  BookingFollowUpRequest,
   BookingListFilters,
   BookingPaymentSummary,
   BookingRecord,
@@ -48,6 +49,10 @@ type StoredBooking = BookingRecord & {
 type DemoBookingErrorCode = 'SLOT_NOT_FOUND' | 'SLOT_MISMATCH' | 'SLOT_UNAVAILABLE'
 const demoBookings: StoredBooking[] = []
 let seededDemoBookingsData = false
+
+function findStoredBooking(bookingId: string): StoredBooking | undefined {
+  return demoBookings.find((booking) => booking.bookingId === bookingId)
+}
 
 function cloneBooking(booking: StoredBooking): BookingRecord {
   return JSON.parse(JSON.stringify(booking)) as BookingRecord
@@ -1115,6 +1120,53 @@ export function createDemoBooking(request: BookingRequest): BookingRecord {
   applyReservationTransition(stored, 'simulated', stored.status)
 
   return cloneBooking(stored)
+}
+
+export function createDemoFollowUpBooking(
+  bookingId: string,
+  followUp: BookingFollowUpRequest
+): BookingRecord {
+  ensureDemoBookingsSeeded()
+  pruneExpiredReservations()
+
+  const original = findStoredBooking(bookingId)
+  if (!original) {
+    throw new BookingNotFoundError(bookingId)
+  }
+
+  const followUpBooking = createDemoBooking({
+    centerId: original.centerId,
+    serviceId: original.serviceId,
+    specialistId: original.specialistId,
+    slotId: followUp.slotId,
+    client: original.client,
+    metadata: { followUpFor: bookingId }
+  })
+
+  const storedFollowUp = findStoredBooking(followUpBooking.bookingId)
+  const followUpNoteParts = [`Follow-up для ${bookingId}`]
+  const trimmedNote = followUp.note?.trim()
+  if (trimmedNote) {
+    followUpNoteParts.push(trimmedNote)
+  }
+  if (storedFollowUp?.statusHistory?.length) {
+    storedFollowUp.statusHistory[storedFollowUp.statusHistory.length - 1].note =
+      followUpNoteParts.join(' · ')
+  }
+
+  const originalNoteParts = [
+    `Назначен follow-up: бронь ${followUpBooking.bookingId}`,
+    `слот ${followUpBooking.slotStart}`
+  ]
+  if (trimmedNote) {
+    originalNoteParts.push(trimmedNote)
+  }
+
+  recordStatusChange(original, original.status, {
+    note: originalNoteParts.join(' · ')
+  })
+
+  return storedFollowUp ? cloneBooking(storedFollowUp) : followUpBooking
 }
 
 export function getDemoBookingById(bookingId: string): BookingRecord | undefined {

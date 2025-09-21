@@ -1,5 +1,6 @@
 import { api } from './api'
 import type {
+  BookingFollowUpRequest,
   BookingListFilters,
   BookingListResponse,
   BookingRecord,
@@ -16,6 +17,7 @@ import {
   demoCenters,
   demoServices,
   demoSpecialists,
+  createDemoFollowUpBooking,
   getDemoSlots,
   getDemoBookingById,
   queryDemoBookings,
@@ -29,6 +31,7 @@ export type {
   BookingListResponse,
   BookingRequest,
   BookingResponse,
+  BookingFollowUpRequest,
   BookingPaymentSummary,
   BookingStatus,
   BookingStatusChange,
@@ -120,6 +123,30 @@ export async function createBooking(request: BookingRequest): Promise<BookingRes
       }
     }
     throw error instanceof Error ? error : new Error('Не удалось создать бронь')
+  }
+}
+
+export async function createFollowUpBooking(
+  bookingId: string,
+  payload: BookingFollowUpRequest
+): Promise<BookingRecord> {
+  try {
+    const response = await api(`/internal/bookings/${bookingId}/follow-up`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+    return response as BookingRecord
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(
+        `[booking] API недоступно, назначаю follow-up в демо-данных ${bookingId}:`,
+        error
+      )
+      return createDemoFollowUpBooking(bookingId, payload)
+    }
+    throw error instanceof Error
+      ? error
+      : new Error('Не удалось назначить follow-up для брони')
   }
 }
 
