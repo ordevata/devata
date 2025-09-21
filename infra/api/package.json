@@ -7,7 +7,11 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "dev": "npm run build && node dist/server.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "migrate": "npm run build && node dist/scripts/migrate.js"
+  },
+  "dependencies": {
+    "pg": "8.12.0"
   },
   "devDependencies": {
     "@types/node": "20.12.12",

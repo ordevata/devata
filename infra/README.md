@@ -28,6 +28,23 @@ docker compose ps
 ```
 После успешного запуска маршрут `https://api.devata.ru/healthz` возвращает JSON `{ "ok": true }`. Сам сервис реализует те же эндпоинты, что и встроенный демо-API в Next.js (`/v1/catalog/*`, `/v1/booking/*`), используя общие тестовые данные, расчёт депозитов и фондов 26/74.
 
+### Миграции БД
+
+Для работы «боевого» API потребуется схема с таблицами расписаний, броней, платежей и фондов. В каталоге `infra/api/migrations/` лежит первая миграция `001_init_schedule.sql`, которая создаёт необходимые ENUM-типы и таблицы (centers, services, specialists, schedule_rules, bookings, orders/payments, funds_ledger и др.).
+
+Запустить миграции можно как локально, так и внутри Docker-контейнера:
+
+```bash
+# локально
+npm --prefix infra/api install   # установить зависимости (однократно)
+npm --prefix infra/api run migrate
+
+# внутри контейнера docker compose
+docker compose run --rm api npm run migrate
+```
+
+Скрипт `migrate` использует встроенный раннер (`dist/scripts/migrate.js`), создаёт таблицу `schema_migrations` и применяет все `.sql`-файлы по порядку. При отсутствии каталога миграций команда завершается без ошибок.
+
 ## Локальная разработка API
 API написан на TypeScript и не зависит от Express. Для локальной проверки без Docker:
 
