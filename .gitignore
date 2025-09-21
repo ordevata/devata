@@ -10,3 +10,4 @@ pnpm-debug.log*
 tsconfig.tsbuildinfo
 .DS_Store
 infra/db-backups/*.sql.gz
+infra/api/dist

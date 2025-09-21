@@ -10,7 +10,7 @@
 ## Структура каталога
 ```
 infra/
-├── api/                # демо-API (Express)
+├── api/                # демо-API (TypeScript, собственный HTTP-сервер)
 ├── db-backups/         # каталог для архивов pg_dump (оставьте пустым, .gitkeep)
 ├── reverse-proxy/      # конфигурация Caddy
 ├── scripts/            # утилиты обслуживания (backup-db.sh)
@@ -26,10 +26,26 @@ docker compose up -d --build
 # Проверяем статус
 docker compose ps
 ```
-После успешного запуска маршрут `https://api.devata.ru/healthz` возвращает JSON `{ "ok": true }`.
+После успешного запуска маршрут `https://api.devata.ru/healthz` возвращает JSON `{ "ok": true }`. Сам сервис реализует те же эндпоинты, что и встроенный демо-API в Next.js (`/v1/catalog/*`, `/v1/booking/*`), используя общие тестовые данные, расчёт депозитов и фондов 26/74.
+
+## Локальная разработка API
+API написан на TypeScript и не зависит от Express. Для локальной проверки без Docker:
+
+```bash
+# однократная сборка в JS
+npm --prefix infra/api run build
+
+# запуск (использует dist/server.js)
+node infra/api/dist/server.js
+
+# или одной командой
+npm --prefix infra/api run dev
+```
+
+Скрипты используют `typescript` и `@types/node`. При отсутствии доступа к npm можно выполнять `npm --prefix infra/api run build` в корне проекта — команда возьмёт компилятор из уже установленных зависимостей фронтенда.
 
 ## Обновление демо-API
-Файлы в `infra/api` представляют простой Express-сервер. Замените их на реальную реализацию (NestJS, FastAPI и т.д.), или укажите готовый образ в `docker-compose.yml` через `image: your-registry/devata-api:tag`.
+Файлы в `infra/api` описывают самостоятельный TypeScript-сервис без внешних фреймворков. Его легко заменить на вашу реализацию (NestJS, FastAPI и т.д.) либо указать готовый образ в `docker-compose.yml` через `image: your-registry/devata-api:tag`.
 
 Во время разработки можно собрать новый образ так:
 ```bash
