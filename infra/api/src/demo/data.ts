@@ -1,9 +1,13 @@
 import type {
+  BookingClient,
   BookingListFilters,
   BookingPaymentSummary,
   BookingRecord,
   BookingRequest,
+  BookingStatus,
   Center,
+  Partner,
+  PartnerPayoutSnapshot,
   ScheduleException,
   ScheduleRule,
   Service,
@@ -12,8 +16,10 @@ import type {
 } from './booking-types.js'
 
 import { buildFundsLedger } from './funds-ledger.js'
+import { buildPartnerPayoutSnapshot } from './partner-ledger.js'
 
 const MS_PER_MINUTE = 60 * 1000
+const MS_PER_HOUR = 60 * MS_PER_MINUTE
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 const DEFAULT_WINDOW_DAYS = 21
 const DEFAULT_LIMIT = 90
@@ -35,6 +41,7 @@ let seededReservation = false
 
 type DemoBookingErrorCode = 'SLOT_NOT_FOUND' | 'SLOT_MISMATCH' | 'SLOT_UNAVAILABLE'
 const demoBookings: BookingRecord[] = []
+let seededDemoBookingsData = false
 
 function normalizePhone(value?: string): string {
   if (!value) return ''
@@ -276,14 +283,7 @@ export const demoSpecialists: Specialist[] = [
   }
 ]
 
-type DemoPartner = {
-  id: string
-  fullName: string
-  parentId?: string
-  trained?: boolean
-}
-
-export const demoPartners: DemoPartner[] = [
+export const demoPartners: Partner[] = [
   { id: 'partner-stella', fullName: 'Стелла Власова', trained: true },
   { id: 'partner-nikita', fullName: 'Никита Журавлёв', parentId: 'partner-stella', trained: true },
   { id: 'partner-elena', fullName: 'Елена Орлова', parentId: 'partner-nikita', trained: true },
@@ -337,6 +337,130 @@ function resolveReferralPath(request: BookingRequest): string[] {
   }
 
   return []
+}
+
+type SeedBookingConfig = {
+  bookingId: string
+  status: BookingStatus
+  centerId: string
+  serviceId: string
+  specialistId: string
+  slotOffsetDays: number
+  slotOffsetMinutes: number
+  client: BookingClient
+  referralRoot?: string
+  referralPath?: string[]
+}
+
+function ensureDemoBookingsSeeded() {
+  if (seededDemoBookingsData) return
+  if (demoBookings.length > 0) {
+    seededDemoBookingsData = true
+    return
+  }
+
+  const now = new Date()
+  const seedConfigs: SeedBookingConfig[] = [
+    {
+      bookingId: 'demo-booking-anna',
+      status: 'confirmed',
+      centerId: 'center-spb',
+      serviceId: 'restoration-basic',
+      specialistId: 'specialist-maria',
+      slotOffsetDays: -5,
+      slotOffsetMinutes: 10 * 60,
+      client: {
+        fullName: 'Анна Петрова',
+        phone: '+7 (921) 111-22-33',
+        email: 'anna@example.com',
+        preferredChannel: 'telegram'
+      },
+      referralRoot: 'partner-sergey'
+    },
+    {
+      bookingId: 'demo-booking-deposit',
+      status: 'reserved',
+      centerId: 'center-spb',
+      serviceId: 'restoration-advanced',
+      specialistId: 'specialist-maria',
+      slotOffsetDays: 3,
+      slotOffsetMinutes: 12 * 60,
+      client: {
+        fullName: 'Дмитрий Смирнов',
+        phone: '+7 (921) 555-44-66',
+        email: 'dmitry@example.com',
+        preferredChannel: 'whatsapp'
+      },
+      referralRoot: 'partner-oksana'
+    },
+    {
+      bookingId: 'demo-booking-diagnostics',
+      status: 'confirmed',
+      centerId: 'center-msk',
+      serviceId: 'diagnostics',
+      specialistId: 'specialist-ilya',
+      slotOffsetDays: 7,
+      slotOffsetMinutes: 15 * 60,
+      client: {
+        fullName: 'Мария Соколова',
+        phone: '+7 (916) 777-88-44',
+        email: 'maria@example.com',
+        preferredChannel: 'email'
+      },
+      referralRoot: 'partner-vadim'
+    }
+  ]
+
+  seedConfigs.forEach((config, index) => {
+    const service = demoServices.find((item) => item.id === config.serviceId)
+    if (!service) return
+
+    const slotStart = new Date(
+      now.getTime() + config.slotOffsetDays * MS_PER_DAY + config.slotOffsetMinutes * MS_PER_MINUTE
+    )
+    const slotEnd = addMinutes(slotStart, service.durationMinutes).toISOString()
+    const createdAt = new Date(slotStart.getTime() - 2 * MS_PER_DAY).toISOString()
+
+    const paymentNow = new Date(slotStart.getTime() - 2 * MS_PER_DAY)
+    const payment = calculatePaymentSummary(service, { now: paymentNow })
+
+    if (payment && config.status === 'reserved') {
+      const dueDate = new Date(slotStart.getTime() - 12 * MS_PER_HOUR)
+      payment.depositDueAt = dueDate.toISOString()
+      payment.depositHoldMinutes = Math.max(payment.depositHoldMinutes ?? 0, Math.ceil(12 * 60))
+    }
+
+    const referralPath = config.referralPath ?? (config.referralRoot ? buildReferralPath(config.referralRoot) : [])
+
+    const funds = payment
+      ? buildFundsLedger({
+          payment,
+          referralPath,
+          specialistSharePercent: service.specialistSharePercent,
+          professionalMentorId: specialistMentorBySpecialist[config.specialistId],
+          totalAmountFallback: service.price
+        })
+      : undefined
+
+    const booking: BookingRecord = {
+      bookingId: config.bookingId,
+      status: config.status,
+      slotStart: slotStart.toISOString(),
+      slotEnd,
+      centerId: config.centerId,
+      serviceId: config.serviceId,
+      specialistId: config.specialistId,
+      slotId: `seed-slot-${index + 1}`,
+      client: config.client,
+      createdAt,
+      payment,
+      funds
+    }
+
+    demoBookings.push(booking)
+  })
+
+  seededDemoBookingsData = true
 }
 
 export const demoScheduleRules: ScheduleRule[] = [
@@ -717,6 +841,7 @@ function nextDemoBookingId() {
 }
 
 export function queryDemoBookings(filters: BookingListFilters = {}): BookingRecord[] {
+  ensureDemoBookingsSeeded()
   pruneExpiredReservations()
   const filtered = demoBookings.filter((booking) => matchesBookingFilters(booking, filters))
   filtered.sort((a, b) => (a.slotStart < b.slotStart ? -1 : a.slotStart > b.slotStart ? 1 : 0))
@@ -730,7 +855,21 @@ export function listDemoBookings(): BookingRecord[] {
   return queryDemoBookings()
 }
 
+export function listDemoPartners(): Partner[] {
+  return demoPartners.map((partner) => ({ ...partner }))
+}
+
+export function getDemoPartnerPayoutSnapshot(): PartnerPayoutSnapshot {
+  const bookings = listDemoBookings()
+  return buildPartnerPayoutSnapshot({
+    bookings,
+    partners: demoPartners,
+    threshold: 50_000
+  })
+}
+
 export function createDemoBooking(request: BookingRequest): BookingRecord {
+  ensureDemoBookingsSeeded()
   pruneExpiredReservations()
 
   const slots = getDemoSlots({

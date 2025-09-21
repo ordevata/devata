@@ -207,3 +207,59 @@ export type BookingListResponse = {
   total: number
   generatedAt: string
 }
+
+export type Partner = {
+  id: string
+  fullName: string
+  parentId?: string
+  trained?: boolean
+}
+
+export type PartnerLedgerEntryType = 'referral' | 'professional_bonus'
+
+export type PartnerLedgerEntryStatus = 'pending' | 'approved' | 'paid'
+
+export type PartnerLedgerEntry = {
+  partnerId: string
+  partnerName: string
+  amount: number
+  percent: number
+  level?: 1 | 2 | 3 | 4 | 5
+  type: PartnerLedgerEntryType
+  componentKind: PaymentComponentKind
+  bookingId: string
+  occurredAt: string
+  status: PartnerLedgerEntryStatus
+  description?: string
+}
+
+export type PartnerPayoutSummary = {
+  partner: Partner
+  threshold: number
+  pendingAmount: number
+  approvedAmount: number
+  paidAmount: number
+  totalBalance: number
+  cashoutAvailable: number
+  carryOverAmount: number
+  availableForServices: number
+  eligibleForPayout: boolean
+  progressToThreshold: number
+  ledger: PartnerLedgerEntry[]
+  updatedAt: string
+}
+
+export type PartnerPayoutTotals = {
+  pendingAmount: number
+  approvedAmount: number
+  paidAmount: number
+  cashoutAvailable: number
+  partnersEligible: number
+}
+
+export type PartnerPayoutSnapshot = {
+  threshold: number
+  generatedAt: string
+  totals: PartnerPayoutTotals
+  summaries: PartnerPayoutSummary[]
+}

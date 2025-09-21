@@ -8,6 +8,7 @@ import {
   demoCenters,
   demoServices,
   demoSpecialists,
+  getDemoPartnerPayoutSnapshot,
   getDemoSlots,
   queryDemoBookings
 } from './demo/data.js'
@@ -244,6 +245,12 @@ function createRequestHandler() {
           total: bookings.length,
           generatedAt: new Date().toISOString()
         })
+        return
+      }
+
+      if (req.method === 'GET' && pathname === '/v1/partners/payouts') {
+        const snapshot = getDemoPartnerPayoutSnapshot()
+        sendJson(res, 200, snapshot)
         return
       }
 
