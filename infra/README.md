@@ -28,6 +28,18 @@ docker compose ps
 ```
 После успешного запуска маршрут `https://api.devata.ru/healthz` возвращает JSON `{ "ok": true }`. Сам сервис реализует те же эндпоинты, что и встроенный демо-API в Next.js (`/v1/catalog/*`, `/v1/booking/*`), используя общие тестовые данные, расчёт депозитов и фондов 26/74.
 
+### Автонастройка сервера
+
+Чтобы ускорить подготовку нового VPS, воспользуйтесь скриптом `scripts/bootstrap-server.sh`.
+Он обновляет систему, устанавливает Docker и docker compose, включает UFW и создаёт каталоги `/opt/devata`
+и `/opt/devata/db-backups`. Выполните его от имени `root`:
+
+```bash
+sudo bash scripts/bootstrap-server.sh
+```
+
+После завершения переподключитесь по SSH, чтобы применились права группы `docker`.
+
 ### Миграции БД
 
 Для работы «боевого» API потребуется схема с таблицами расписаний, броней, платежей и фондов. В каталоге `infra/api/migrations/` лежит первая миграция `001_init_schedule.sql`, которая создаёт необходимые ENUM-типы и таблицы (centers, services, specialists, schedule_rules, bookings, orders/payments, funds_ledger и др.).
