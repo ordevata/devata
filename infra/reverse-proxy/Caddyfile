@@ -1,0 +1,27 @@
+api.devata.ru {
+  encode zstd gzip
+  reverse_proxy api:3000
+
+  @health path /healthz
+  handle @health {
+    respond 200
+  }
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Frame-Options "DENY"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    Content-Security-Policy "default-src 'self'"
+  }
+}
+
+wa.devata.ru {
+  encode zstd gzip
+  reverse_proxy wa_gateway:8080
+
+  @health path /healthz
+  handle @health {
+    respond 200
+  }
+}
